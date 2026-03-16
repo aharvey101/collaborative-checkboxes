@@ -1,0 +1,15 @@
+{
+  "name": "checkboxes-impl",
+  "version": "1.0.0",
+  "description": "A real-time collaborative checkbox grid supporting 1 million checkboxes (scalable to 1 billion) using SpacetimeDB 0.1 backend and vanilla WASM frontend.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}
