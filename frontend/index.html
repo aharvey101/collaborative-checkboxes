@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scalable Checkboxes on SpacetimeDB</title>
+  </head>
+  <body>
+    <script type="module">
+      import init from './pkg/frontend.js';
+      
+      async function main() {
+        try {
+          await init();
+          console.log('WASM module loaded successfully');
+        } catch (error) {
+          console.error('Failed to load WASM module:', error);
+          const app = document.getElementById('app') || document.body;
+          app.innerHTML = `<p style="color: red;">Error loading WASM: ${error.message}</p>`;
+        }
+      }
+      
+      main();
+    </script>
+  </body>
+</html>

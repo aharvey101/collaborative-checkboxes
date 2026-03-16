@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpacetimeDB TypeScript Checkboxes</title>
+    
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+        
+        button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+        
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-weight: 500;
+            min-width: 120px;
+            text-align: center;
+        }
+        
+        .status.disconnected {
+            background-color: #e9ecef;
+            color: #6c757d;
+        }
+        
+        .status.connecting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .grid-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 30px 0;
+        }
+        
+        .viewport-container {
+            width: 800px;
+            height: 600px;
+            overflow: hidden;
+            position: relative;
+            border: 3px solid #333;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+            background-color: #f8f9fa;
+        }
+        
+        #checkboxCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform: translate(0px, 0px);
+            transition: transform 0.2s ease-out;
+            cursor: pointer;
+            background-color: white;
+        }
+        
+        .navigation-hints {
+            text-align: center;
+            margin-top: 15px;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .navigation-hints p {
+            margin: 5px 0;
+        }
+        
+        .info-panel {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .info-card {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+        }
+        
+        .info-card h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 16px;
+        }
+        
+        .info-card p {
+            margin: 5px 0;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 SpacetimeDB TypeScript Checkboxes</h1>
+        
+        <div class="controls">
+            <button id="connectBtn" onclick="connectToSpacetimeDB()">Connect to SpacetimeDB</button>
+            <button id="testBtn" onclick="runTest()" disabled>Run Test</button>
+            <button id="clearBtn" onclick="clearCheckboxes()" disabled>Clear All</button>
+            <div id="status" class="status disconnected">Disconnected</div>
+        </div>
+        
+        <div class="grid-container">
+            <div class="viewport-container">
+                <canvas id="checkboxCanvas"></canvas>
+            </div>
+            <div class="navigation-hints">
+                <p>🎯 Use arrow keys to navigate • 10,000 checkboxes (100×100 grid)</p>
+                <p>📍 Position: <span id="viewportPosition">0, 0</span></p>
+            </div>
+        </div>
+        
+        <div class="info-panel">
+            <div class="info-card">
+                <h3>Connection Info</h3>
+                <p><strong>Server:</strong> <span id="serverUrl">http://localhost:3000</span></p>
+                <p><strong>Database:</strong> <span id="databaseName">checkboxes-local-demo</span></p>
+                <p><strong>SDK:</strong> SpacetimeDB TypeScript 2.0.4</p>
+            </div>
+            
+            <div class="info-card">
+                <h3>Checkbox Stats</h3>
+                <p><strong>Total:</strong> <span id="totalCount">10000</span></p>
+                <p><strong>Checked:</strong> <span id="checkedCount">0</span></p>
+                <p><strong>Grid Size:</strong> 100×100 (navigable)</p>
+            </div>
+            
+            <div class="info-card">
+                <h3>Real-time Features</h3>
+                <p>✅ Live updates via subscriptions</p>
+                <p>✅ Multi-user collaboration</p>
+                <p>✅ Persistent checkbox state</p>
+            </div>
+        </div>
+        
+        <div>
+            <h3>Activity Log</h3>
+            <div id="log" class="log">Loading TypeScript modules...\n</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { SpacetimeDBCheckboxApp } from './src/SpacetimeDBCheckboxApp.ts';
+        
+        let app = null;
+        
+        // Initialize the application
+        async function initializeApp() {
+            try {
+                log('🚀 Initializing SpacetimeDB TypeScript application...');
+                
+                app = new SpacetimeDBCheckboxApp('http://localhost:3000', 'checkboxes-local-demo');
+                
+                const canvas = document.getElementById('checkboxCanvas');
+                app.initializeCanvas(canvas);
+                
+                log('✅ Application initialized successfully');
+                log('👆 Click "Connect to SpacetimeDB" to start');
+                
+            } catch (error) {
+                log(`❌ Failed to initialize application: ${error.message}`);
+                updateStatus('error', 'Initialization Failed');
+            }
+        }
+        
+        // Connect to SpacetimeDB
+        window.connectToSpacetimeDB = async function() {
+            if (!app) {
+                log('❌ Application not initialized');
+                return;
+            }
+            
+            try {
+                updateStatus('connecting', 'Connecting...');
+                document.getElementById('connectBtn').disabled = true;
+                
+                log('🔌 Connecting to SpacetimeDB with official TypeScript SDK...');
+                
+                const success = await app.connect();
+                
+                if (success) {
+                    updateStatus('connected', 'Connected ✓');
+                    document.getElementById('testBtn').disabled = false;
+                    document.getElementById('clearBtn').disabled = false;
+                    log('🎉 Successfully connected to SpacetimeDB!');
+                    log('📡 Real-time subscriptions active');
+                    updateStats();
+                } else {
+                    updateStatus('error', 'Connection Failed');
+                    document.getElementById('connectBtn').disabled = false;
+                    log('❌ Failed to connect to SpacetimeDB');
+                }
+                
+            } catch (error) {
+                log(`💥 Connection error: ${error.message}`);
+                updateStatus('error', 'Connection Error');
+                document.getElementById('connectBtn').disabled = false;
+            }
+        };
+        
+        // Run a test - toggle some checkboxes
+        window.runTest = async function() {
+            if (!app || !app.isConnected()) {
+                log('❌ Not connected to SpacetimeDB');
+                return;
+            }
+            
+            log('🧪 Running test - toggling checkboxes in pattern...');
+            
+            const testPattern = [
+                [1, 1], [1, 2], [1, 3],
+                [2, 1], [2, 3],
+                [3, 1], [3, 2], [3, 3],
+                [5, 5], [6, 6], [7, 7]
+            ];
+            
+            for (const [x, y] of testPattern) {
+                try {
+                    await app.toggleCheckbox(x, y);
+                    log(`✓ Toggled checkbox at (${x}, ${y})`);
+                    await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
+                } catch (error) {
+                    log(`❌ Failed to toggle (${x}, ${y}): ${error.message}`);
+                }
+            }
+            
+            updateStats();
+            log('🏁 Test pattern completed!');
+        };
+        
+        // Clear all checkboxes
+        window.clearCheckboxes = async function() {
+            log('🧹 Clear all functionality not implemented yet');
+            log('💡 Manually click checkboxes to toggle them off');
+        };
+        
+        function updateStatus(status, text) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status ${status}`;
+            statusEl.textContent = text;
+        }
+        
+        function updateStats() {
+            if (app && app.isConnected()) {
+                const stats = app.getCheckboxCount();
+                document.getElementById('totalCount').textContent = stats.total;
+                document.getElementById('checkedCount').textContent = stats.checked;
+            }
+        }
+        
+        function log(message) {
+            const logEl = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logEl.textContent += `[${timestamp}] ${message}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        
+        // Initialize on page load
+        initializeApp().catch(error => {
+            log(`💥 Critical error: ${error.message}`);
+            updateStatus('error', 'Failed to Start');
+        });
+        
+        // Periodic stats update
+        setInterval(() => {
+            if (app && app.isConnected()) {
+                updateStats();
+            }
+        }, 2000);
+    </script>
+</body>
+</html>
