@@ -1,12 +1,12 @@
-// SpacetimeDB backend for scalable checkboxes
+// SpacetimeDB backend for collaborative checkboxes
 
-use spacetimedb::spacetimedb;
+use spacetimedb::{reducer, table, ReducerContext, Table};
 
 /// Stores checkbox state in chunks of 1 million checkboxes each  
 /// Each chunk = 125KB (1,000,000 bits / 8 bytes per bit)
-#[spacetimedb(table)]
+#[table(accessor = checkbox_chunk, public)]
 pub struct CheckboxChunk {
-    #[primarykey]
+    #[primary_key]
     pub chunk_id: u32,
     pub state: Vec<u8>, // 125KB blob for 1M checkboxes
     pub version: u64,   // For tracking updates
@@ -27,18 +27,15 @@ fn set_bit(data: &mut [u8], bit_index: usize, value: bool) {
 }
 
 /// Update a single checkbox bit in a chunk
-#[spacetimedb(reducer)]
-pub fn update_checkbox(chunk_id: u32, bit_offset: u16, checked: bool) {
-    // Try to find existing chunk by iterating through all chunks
-    for row in CheckboxChunk::iter() {
-        if row.chunk_id == chunk_id {
-            let mut chunk = row;
-            // Set the bit
-            set_bit(&mut chunk.state, bit_offset as usize, checked);
-            chunk.version += 1;
-            CheckboxChunk::update_by_chunk_id(&chunk_id, chunk);
-            return;
-        }
+#[reducer]
+pub fn update_checkbox(ctx: &ReducerContext, chunk_id: u32, bit_offset: u16, checked: bool) {
+    // Try to find existing chunk by primary key
+    if let Some(mut row) = ctx.db.checkbox_chunk().chunk_id().find(chunk_id) {
+        // Set the bit
+        set_bit(&mut row.state, bit_offset as usize, checked);
+        row.version += 1;
+        ctx.db.checkbox_chunk().chunk_id().update(row);
+        return;
     }
 
     // If chunk doesn't exist, create it and set the bit
@@ -48,19 +45,19 @@ pub fn update_checkbox(chunk_id: u32, bit_offset: u16, checked: bool) {
         version: 0,
     };
     set_bit(&mut new_chunk.state, bit_offset as usize, checked);
-    CheckboxChunk::insert(new_chunk);
+    ctx.db.checkbox_chunk().insert(new_chunk);
 }
 
 /// Add a new chunk for expanding to additional checkboxes
-#[spacetimedb(reducer)]
-pub fn add_chunk(chunk_id: u32) {
+#[reducer]
+pub fn add_chunk(ctx: &ReducerContext, chunk_id: u32) {
     // Initialize a new chunk with 125KB (1M bits) of zeros
     let new_chunk = CheckboxChunk {
         chunk_id,
         state: vec![0u8; 125_000], // 1,000,000 bits / 8
         version: 0,
     };
-    CheckboxChunk::insert(new_chunk);
+    ctx.db.checkbox_chunk().insert(new_chunk);
 }
 
 #[cfg(test)]
