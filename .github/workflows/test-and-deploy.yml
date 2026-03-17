@@ -31,8 +31,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: typescript-frontend/package-lock.json
 
       - name: Install SpacetimeDB CLI
         run: |
@@ -42,10 +40,13 @@ jobs:
 
       - name: Install dependencies
         run: |
+          echo "Installing typescript-frontend dependencies..."
           cd typescript-frontend
-          npm ci
+          npm ci --verbose
+          echo "Installing scripts dependencies..."
           cd ../scripts
-          npm ci
+          npm ci --verbose
+          echo "Dependency installation complete"
 
       - name: Install Playwright browsers
         run: |
