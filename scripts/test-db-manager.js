@@ -109,6 +109,9 @@ class TestDatabaseManager {
   }
 }
 
+// Export the class for use in other modules
+export { TestDatabaseManager };
+
 // CLI interface
 const command = process.argv[2];
 const manager = new TestDatabaseManager();
