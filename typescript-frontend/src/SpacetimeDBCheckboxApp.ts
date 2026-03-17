@@ -34,7 +34,7 @@ export class SpacetimeDBCheckboxApp {
   // Database client
   private checkboxDatabase: CheckboxDatabase;
 
-  constructor(serverUrl: string = 'http://localhost:3000', databaseAddress: string = 'checkboxes-local-demo') {
+  constructor(serverUrl: string = 'http://localhost:3001', databaseAddress: string = 'c200f55a1042dfa3abafc82273cc1d9daa4268eb87ec63ed798f504971ff6754') {
     this.serverUrl = serverUrl;
     this.databaseAddress = databaseAddress;
     this.checkboxDatabase = new CheckboxDatabase(serverUrl, databaseAddress);
@@ -73,15 +73,38 @@ export class SpacetimeDBCheckboxApp {
   private async autoConnect(): Promise<void> {
     try {
       console.log('🔄 Auto-connecting to SpacetimeDB...');
-      const connected = await this.connect();
+      
+      // Add timeout to connection attempt
+      const connectPromise = this.connect();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Connection timeout after 10 seconds')), 10000)
+      );
+      
+      const connected = await Promise.race([connectPromise, timeoutPromise]);
+      
       if (connected) {
         console.log('✅ Auto-connection successful');
+        this.showStatus('✅ Connected to SpacetimeDB', 'success');
+        setTimeout(() => this.hideStatus(), 2000);
       } else {
         console.log('⚠️ Auto-connection failed - manual connection available');
+        this.showStatus('⚠️ Database connection failed - check setup', 'warning');
+        setTimeout(() => this.hideStatus(), 5000);
       }
     } catch (error) {
       console.log('⚠️ Auto-connection failed:', error.message);
       console.log('💡 Use "Connect to SpacetimeDB" button to connect manually');
+      
+      // Provide specific setup guidance
+      if (error.message.includes('timeout')) {
+        console.error('🔧 SETUP ISSUE: SpacetimeDB server is not responding');
+        console.error('🔧 SOLUTION: Ensure SpacetimeDB server is running');
+        console.error('🔧 COMMAND: `cd backend && spacetime start --listen-addr 127.0.0.1:3001`');
+        this.showStatus('⏱️ Server timeout - Start SpacetimeDB server (see console)', 'error');
+      } else {
+        this.showStatus('❌ Connection failed - check server setup', 'error');
+      }
+      setTimeout(() => this.hideStatus(), 5000);
     }
   }
   
@@ -248,7 +271,23 @@ export class SpacetimeDBCheckboxApp {
         console.log(`🔄 [DB-IN] CHANGED: ${oldFirst10 !== newFirst10 ? 'YES' : 'NO'}`);
       }
       
-      this.chunkData.set(newRow.chunkId, new Uint8Array(newRow.state));
+      // Merge database state with local state (preserve local optimistic updates)
+      const localChunk = this.chunkData.get(newRow.chunkId);
+      if (localChunk) {
+        // Create a merged state: start with database state, then apply local changes
+        const mergedState = new Uint8Array(newRow.state);
+        
+        // For each byte, use bitwise OR to preserve any local optimistic updates
+        // that might not be reflected in the database state yet
+        for (let i = 0; i < Math.min(localChunk.length, mergedState.length); i++) {
+          mergedState[i] |= localChunk[i];
+        }
+        
+        this.chunkData.set(newRow.chunkId, mergedState);
+      } else {
+        // No local state exists, just use database state
+        this.chunkData.set(newRow.chunkId, new Uint8Array(newRow.state));
+      }
       
       console.log(`🎨 [RENDER] Triggering render from chunk UPDATE`);
       this.render();
@@ -290,8 +329,16 @@ export class SpacetimeDBCheckboxApp {
       // 🔍 DEBUG: Log before database call
       console.log(`📤 [DB-OUT] Calling updateCheckbox(${chunkId}, ${bitOffset}, ${newState})`);
       
-      // Update SpacetimeDB first
-      await this.checkboxDatabase.updateCheckbox(chunkId, bitOffset, newState);
+      // Add timeout wrapper to database call
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Database call timed out after 5 seconds')), 5000)
+      );
+      
+      // Race between database call and timeout
+      await Promise.race([
+        this.checkboxDatabase.updateCheckbox(chunkId, bitOffset, newState),
+        timeoutPromise
+      ]);
       
       // 🔍 DEBUG: Log database success
       console.log(`✅ [DB-OK] updateCheckbox successful`);
@@ -305,7 +352,10 @@ export class SpacetimeDBCheckboxApp {
         
         // Create chunk in database if it doesn't exist
         console.log(`📤 [DB-OUT] Calling addChunk(${chunkId})`);
-        await this.checkboxDatabase.addChunk(chunkId);
+        await Promise.race([
+          this.checkboxDatabase.addChunk(chunkId),
+          timeoutPromise
+        ]);
         console.log(`✅ [DB-OK] addChunk successful`);
       }
       
@@ -339,13 +389,29 @@ export class SpacetimeDBCheckboxApp {
       
     } catch (error) {
       console.error('💥 [ERROR] Failed to toggle checkbox:', error);
-      this.showStatus(`Failed to update: ${error.message}`, 'error');
-      setTimeout(() => this.hideStatus(), 3000);
+      
+      // Provide specific error messages for common issues
+      let userMessage = `Failed to update checkbox: ${error.message}`;
+      
+      if (error.message.includes('timeout')) {
+        userMessage = '⏱️ Database timeout - Check if SpacetimeDB server is running (see console for setup guide)';
+        console.error('🔧 SETUP HELP: SpacetimeDB server may not be running.');
+        console.error('🔧 QUICK FIX: Run `spacetime start --listen-addr 127.0.0.1:3001` in backend directory');
+        console.error('🔧 FULL SETUP: See SETUP-TROUBLESHOOTING.md for complete setup guide');
+      } else if (error.message.includes('connection') || error.message.includes('network')) {
+        userMessage = '🌐 Connection error - Check SpacetimeDB server address and network';
+        console.error('🔧 SETUP HELP: Database connection failed.');
+        console.error('🔧 CHECK: Verify SpacetimeDB server is running on expected port');
+        console.error('🔧 CONFIG: Update server URL in SpacetimeDBCheckboxApp constructor if needed');
+      }
+      
+      this.showStatus(userMessage, 'error');
+      setTimeout(() => this.hideStatus(), 5000); // Show error longer for setup issues
     }
   }
   
-  // Get checkbox state from chunk data
-  private getCheckboxState(row: number, col: number): boolean {
+  // Get checkbox state from chunk data (public for testing)
+  public getCheckboxState(row: number, col: number): boolean {
     const globalIndex = row * this.gridSize + col;
     const chunkId = Math.floor(globalIndex / 1000000);
     const bitOffset = globalIndex % 1000000;

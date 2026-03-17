@@ -15,7 +15,7 @@ check_spacetimedb_installed() {
 }
 
 is_running() {
-    curl -f "http://${SPACETIMEDB_HOST}:${SPACETIMEDB_PORT}/health" &>/dev/null
+    nc -z "${SPACETIMEDB_HOST}" "${SPACETIMEDB_PORT}" 2>/dev/null
 }
 
 start_spacetimedb() {
@@ -29,7 +29,7 @@ start_spacetimedb() {
     echo "🚀 Starting SpacetimeDB on ${SPACETIMEDB_HOST}:${SPACETIMEDB_PORT}..."
     
     # Start in background and redirect output to log file
-    spacetime start --listen "${SPACETIMEDB_HOST}:${SPACETIMEDB_PORT}" > "${LOG_FILE}" 2>&1 &
+    spacetime start --listen-addr "${SPACETIMEDB_HOST}:${SPACETIMEDB_PORT}" > "${LOG_FILE}" 2>&1 &
     local pid=$!
     
     # Save PID for later cleanup

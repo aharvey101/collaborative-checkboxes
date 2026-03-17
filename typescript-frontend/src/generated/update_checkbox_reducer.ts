@@ -12,6 +12,6 @@ import {
 
 export default {
   chunkId: __t.u32(),
-  bitOffset: __t.u16(),
+  bitOffset: __t.u32(),
   checked: __t.bool(),
 };
