@@ -1,4 +1,4 @@
 {
-  "server": "https://maincloud.spacetimedb.com", 
+  "server": "https://maincloud.spacetimedb.com",
   "database": "collaborative-checkboxes-prod"
 }

@@ -10,7 +10,12 @@ export default defineConfig({
       '**/node_modules/**',
       '**/dist/**',
       '**/.{idea,git,cache,output,temp}/**'
-    ]
+    ],
+    coverage: {
+      provider: 'c8',
+      reporter: ['text', 'lcov', 'html'],
+      reportsDirectory: './coverage'
+    }
   },
   resolve: {
     alias: {

@@ -1,0 +1,179 @@
+name: Test and Deploy
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  SPACETIMEDB_TOKEN: ${{ secrets.SPACETIMEDB_TOKEN }}
+  NETLIFY_TOKEN: ${{ secrets.NETLIFY_TOKEN }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Test Suite
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: typescript-frontend/package-lock.json
+          
+      - name: Install SpacetimeDB CLI
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://install.spacetimedb.com | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          
+      - name: Install dependencies
+        run: |
+          cd typescript-frontend
+          npm ci
+          cd ../scripts  
+          npm ci
+          
+      - name: Build backend module
+        run: |
+          cd backend
+          cargo build --release --target wasm32-unknown-unknown
+          
+      - name: Start local SpacetimeDB
+        run: ./scripts/spacetimedb-local.sh start
+        
+      - name: Setup test environment
+        run: |
+          node scripts/test-db-manager.js switch ci
+          
+      - name: Deploy test module
+        run: ./scripts/spacetimedb-local.sh deploy
+        
+      - name: Run test suite
+        run: |
+          cd typescript-frontend
+          TEST_ENV=ci npm run test:ci
+          
+      - name: Generate test coverage
+        run: |
+          cd typescript-frontend  
+          TEST_ENV=ci npm run test:coverage
+          
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: typescript-frontend/coverage/lcov.info
+          
+      - name: Cleanup test environment
+        if: always()
+        run: |
+          node scripts/test-db-manager.js restore
+          ./scripts/spacetimedb-local.sh stop
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    name: Deploy to Staging
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          
+      - name: Install SpacetimeDB CLI
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://install.spacetimedb.com | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          
+      - name: Build backend module
+        run: |
+          cd backend
+          cargo build --release --target wasm32-unknown-unknown
+          
+      - name: Deploy to staging
+        run: |
+          node scripts/test-db-manager.js switch staging
+          cd backend
+          spacetime publish
+          
+      - name: Run staging smoke tests
+        run: |
+          cd typescript-frontend
+          npm ci
+          TEST_ENV=staging npm run test:staging
+          
+      - name: Cleanup staging deployment
+        if: always()
+        run: node scripts/test-db-manager.js restore
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    name: Deploy to Production
+    needs: [test, deploy-staging]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          
+      - name: Install SpacetimeDB CLI
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://install.spacetimedb.com | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          
+      - name: Build backend module  
+        run: |
+          cd backend
+          cargo build --release --target wasm32-unknown-unknown
+          
+      - name: Deploy to production
+        run: |
+          node scripts/test-db-manager.js switch production
+          cd backend
+          spacetime publish
+          
+      - name: Update frontend configuration
+        run: |
+          # Frontend already points to production SpacetimeDB
+          echo "Frontend configuration already production-ready"
+          
+      - name: Deploy frontend to Netlify
+        run: |
+          cd typescript-frontend
+          npm ci
+          npm run build
+          npx netlify deploy --prod --dir=dist --auth=$NETLIFY_TOKEN
+          
+      - name: Cleanup production deployment
+        if: always()
+        run: node scripts/test-db-manager.js restore
+        
+      - name: Create deployment tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"  
+          git tag "deploy-$(date +%Y%m%d-%H%M%S)"
+          git push origin --tags
