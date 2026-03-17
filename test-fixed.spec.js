@@ -1,5 +1,18 @@
 import { test, expect } from '@playwright/test';
 
+// Enhanced error handling for SpacetimeDB connection issues
+test.beforeEach(async ({ page }) => {
+  page.on('console', msg => {
+    if (msg.type() === 'error' || msg.text().includes('ERROR')) {
+      console.log(`[BROWSER ERROR] ${msg.text()}`);
+    }
+  });
+  
+  page.on('pageerror', err => {
+    console.log(`[PAGE ERROR] ${err.message}`);
+  });
+});
+
 test('WASM loads with cache busting and no runtime errors', async ({ page }) => {
   const consoleLogs = [];
   const consoleErrors = [];
@@ -16,7 +29,8 @@ test('WASM loads with cache busting and no runtime errors', async ({ page }) => 
   
   // Add cache-busting parameter to force fresh WASM load
   const timestamp = Date.now();
-  await page.goto(`http://localhost:8000?v=${timestamp}`, { waitUntil: 'networkidle' });
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+  await page.goto(`${baseURL}?v=${timestamp}`, { waitUntil: 'networkidle' });
   
   // Wait for WASM to load
   await page.waitForFunction(() => {
@@ -53,7 +67,8 @@ test('arrow key panning with no externref table errors', async ({ page }) => {
   
   // Cache-busting load
   const timestamp = Date.now();
-  await page.goto(`http://localhost:8000?v=${timestamp}`, { waitUntil: 'networkidle' });
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+  await page.goto(`${baseURL}?v=${timestamp}`, { waitUntil: 'networkidle' });
   
   // Wait for WASM to load
   await page.waitForFunction(() => {
@@ -98,7 +113,8 @@ test('mouse drag panning with no externref table errors', async ({ page }) => {
   
   // Cache-busting load
   const timestamp = Date.now();
-  await page.goto(`http://localhost:8000?v=${timestamp}`, { waitUntil: 'networkidle' });
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+  await page.goto(`${baseURL}?v=${timestamp}`, { waitUntil: 'networkidle' });
   
   // Wait for WASM to load
   await page.waitForFunction(() => {
@@ -141,7 +157,8 @@ test('checkbox clicking triggers no externref table errors', async ({ page }) =>
   
   // Cache-busting load
   const timestamp = Date.now();
-  await page.goto(`http://localhost:8000?v=${timestamp}`, { waitUntil: 'networkidle' });
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+  await page.goto(`${baseURL}?v=${timestamp}`, { waitUntil: 'networkidle' });
   
   // Wait for WASM to load
   await page.waitForFunction(() => {
@@ -182,7 +199,8 @@ test('combined interactions with cache busting and no runtime errors', async ({ 
   
   // Cache-busting load
   const timestamp = Date.now();
-  await page.goto(`http://localhost:8000?v=${timestamp}`, { waitUntil: 'networkidle' });
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+  await page.goto(`${baseURL}?v=${timestamp}`, { waitUntil: 'networkidle' });
   
   // Wait for WASM to load
   await page.waitForFunction(() => {

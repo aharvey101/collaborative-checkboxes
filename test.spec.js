@@ -1,10 +1,35 @@
 import { test, expect } from '@playwright/test';
 
+// Reset state before each test for isolation
+test.beforeEach(async ({ page }) => {
+  // Reset SpacetimeDB state if available
+  try {
+    const { execSync } = await import('child_process');
+    execSync('node scripts/test-db-manager.js reset-data', { stdio: 'ignore' });
+  } catch (error) {
+    console.log('State reset skipped - SpacetimeDB may not be running');
+  }
+});
+
+// Enhanced error handling for SpacetimeDB connection issues
+test.beforeEach(async ({ page }) => {
+  page.on('console', msg => {
+    if (msg.type() === 'error' || msg.text().includes('ERROR')) {
+      console.log(`[BROWSER ERROR] ${msg.text()}`);
+    }
+  });
+  
+  page.on('pageerror', err => {
+    console.log(`[PAGE ERROR] ${err.message}`);
+  });
+});
+
 test('page loads and WASM initializes', async ({ page }) => {
   page.on('console', msg => console.log(msg.text()));
   page.on('pageerror', err => console.log('ERROR:', err));
   
-  await page.goto('http://localhost:8000', { waitUntil: 'networkidle' });
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+  await page.goto(baseURL, { waitUntil: 'networkidle' });
   
   // Wait for WASM to load
   await page.waitForFunction(() => {
@@ -23,7 +48,8 @@ test('arrow keys pan the grid', async ({ page }) => {
   page.on('console', msg => console.log(msg.text()));
   page.on('pageerror', err => console.log('ERROR:', err));
   
-  await page.goto('http://localhost:8000', { waitUntil: 'networkidle' });
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+  await page.goto(baseURL, { waitUntil: 'networkidle' });
   
   // Wait for WASM to load
   await page.waitForFunction(() => {
@@ -51,7 +77,8 @@ test('checkboxes can be clicked', async ({ page }) => {
   page.on('console', msg => console.log(msg.text()));
   page.on('pageerror', err => console.log('ERROR:', err));
   
-  await page.goto('http://localhost:8000', { waitUntil: 'networkidle' });
+  const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+  await page.goto(baseURL, { waitUntil: 'networkidle' });
   
   // Wait for WASM to load
   await page.waitForFunction(() => {
