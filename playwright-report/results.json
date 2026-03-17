@@ -1,0 +1,1100 @@
+{
+  "config": {
+    "configFile": "/Users/alexander/development/checkboxes-clean/playwright.config.js",
+    "rootDir": "/Users/alexander/development/checkboxes-clean",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": "/Users/alexander/development/checkboxes-clean/test-setup.js",
+    "globalTeardown": "/Users/alexander/development/checkboxes-clean/test-teardown.js",
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {},
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/alexander/development/checkboxes-clean/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {},
+        "id": "ci",
+        "name": "ci",
+        "testDir": "/Users/alexander/development/checkboxes-clean",
+        "testIgnore": [],
+        "testMatch": [
+          "*.spec.js"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/alexander/development/checkboxes-clean/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {},
+        "id": "staging",
+        "name": "staging",
+        "testDir": "/Users/alexander/development/checkboxes-clean",
+        "testIgnore": [],
+        "testMatch": [
+          "*.spec.js"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/alexander/development/checkboxes-clean/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {},
+        "id": "production",
+        "name": "production",
+        "testDir": "/Users/alexander/development/checkboxes-clean",
+        "testIgnore": [],
+        "testMatch": [
+          "*.spec.js"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "html",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "playwright-report/results.json"
+        }
+      ],
+      [
+        "list",
+        null
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "runAgents": "none",
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.58.2",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "test-fixed.spec.js",
+      "file": "test-fixed.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "WASM loads with cache busting and no runtime errors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ci",
+              "projectName": "ci",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "staging",
+              "projectName": "staging",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "production",
+              "projectName": "production",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "d69a64aac7440840bb01-a98533b92b4ffaed7230",
+          "file": "test-fixed.spec.js",
+          "line": 24,
+          "column": 1
+        },
+        {
+          "title": "arrow key panning with no externref table errors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ci",
+              "projectName": "ci",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "staging",
+              "projectName": "staging",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "production",
+              "projectName": "production",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "d69a64aac7440840bb01-2c0a35c750249bccac2d",
+          "file": "test-fixed.spec.js",
+          "line": 67,
+          "column": 1
+        },
+        {
+          "title": "mouse drag panning with no externref table errors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ci",
+              "projectName": "ci",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "staging",
+              "projectName": "staging",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "production",
+              "projectName": "production",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "d69a64aac7440840bb01-3e7b0447b100294b21af",
+          "file": "test-fixed.spec.js",
+          "line": 113,
+          "column": 1
+        },
+        {
+          "title": "checkbox clicking triggers no externref table errors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ci",
+              "projectName": "ci",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "staging",
+              "projectName": "staging",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "production",
+              "projectName": "production",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "d69a64aac7440840bb01-977e94a05c2fd39592d4",
+          "file": "test-fixed.spec.js",
+          "line": 157,
+          "column": 1
+        },
+        {
+          "title": "combined interactions with cache busting and no runtime errors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ci",
+              "projectName": "ci",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "staging",
+              "projectName": "staging",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "production",
+              "projectName": "production",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "d69a64aac7440840bb01-2e256eba2b1070712c93",
+          "file": "test-fixed.spec.js",
+          "line": 199,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "test-mouse.spec.js",
+      "file": "test-mouse.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Mouse interactions and visual feedback",
+          "file": "test-mouse.spec.js",
+          "line": 24,
+          "column": 6,
+          "specs": [
+            {
+              "title": "checkboxes can be toggled by clicking",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "6027ed778fc4f1bd2a60-898ae05bcd3b1a59f9a4",
+              "file": "test-mouse.spec.js",
+              "line": 26,
+              "column": 3
+            },
+            {
+              "title": "checked counter element exists and displays a number",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "6027ed778fc4f1bd2a60-8ed7612e46ee232988d4",
+              "file": "test-mouse.spec.js",
+              "line": 62,
+              "column": 3
+            },
+            {
+              "title": "checkbox parent gets correct CSS class when checked",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "6027ed778fc4f1bd2a60-55246a85487f7a3bdd88",
+              "file": "test-mouse.spec.js",
+              "line": 86,
+              "column": 3
+            },
+            {
+              "title": "multiple checkboxes can be clicked in sequence",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "6027ed778fc4f1bd2a60-a6f89a0d88e68b759c09",
+              "file": "test-mouse.spec.js",
+              "line": 132,
+              "column": 3
+            },
+            {
+              "title": "grid updates when panning after checkbox click",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "6027ed778fc4f1bd2a60-bbab15aa35485f04435c",
+              "file": "test-mouse.spec.js",
+              "line": 162,
+              "column": 3
+            },
+            {
+              "title": "status indicator displays connection state",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "6027ed778fc4f1bd2a60-ec958b0ef0156f1edb28",
+              "file": "test-mouse.spec.js",
+              "line": 197,
+              "column": 3
+            },
+            {
+              "title": "checkbox data attributes are correct",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "6027ed778fc4f1bd2a60-f792952826302c47f884",
+              "file": "test-mouse.spec.js",
+              "line": 217,
+              "column": 3
+            },
+            {
+              "title": "clicking different checkboxes in grid works",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "6027ed778fc4f1bd2a60-f007a8ddb898596d91c2",
+              "file": "test-mouse.spec.js",
+              "line": 240,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "test-panning.spec.js",
+      "file": "test-panning.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Panning functionality",
+          "file": "test-panning.spec.js",
+          "line": 24,
+          "column": 6,
+          "specs": [
+            {
+              "title": "grid updates position with arrow right",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "350f877ad62c46bf2806-1f219b736ec6b39bc3fc",
+              "file": "test-panning.spec.js",
+              "line": 26,
+              "column": 3
+            },
+            {
+              "title": "grid updates position with arrow left",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "350f877ad62c46bf2806-2fda64714e71565a882d",
+              "file": "test-panning.spec.js",
+              "line": 63,
+              "column": 3
+            },
+            {
+              "title": "grid updates position with arrow down",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "350f877ad62c46bf2806-1b8a5503121ac5fe8add",
+              "file": "test-panning.spec.js",
+              "line": 96,
+              "column": 3
+            },
+            {
+              "title": "grid updates position with arrow up",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "350f877ad62c46bf2806-ee8563c178dd01a4f4d7",
+              "file": "test-panning.spec.js",
+              "line": 125,
+              "column": 3
+            },
+            {
+              "title": "multiple arrow key presses pan continuously",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "350f877ad62c46bf2806-3d3195af224891cd5cb4",
+              "file": "test-panning.spec.js",
+              "line": 158,
+              "column": 3
+            },
+            {
+              "title": "diagonal panning (right then down)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "350f877ad62c46bf2806-850be6e5059d2045ff4a",
+              "file": "test-panning.spec.js",
+              "line": 201,
+              "column": 3
+            },
+            {
+              "title": "viewport dimensions display correctly",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "350f877ad62c46bf2806-aad6e0b0ce9ab5536120",
+              "file": "test-panning.spec.js",
+              "line": 234,
+              "column": 3
+            },
+            {
+              "title": "columns display correctly",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "350f877ad62c46bf2806-b09b7b96307d076dfc94",
+              "file": "test-panning.spec.js",
+              "line": 255,
+              "column": 3
+            },
+            {
+              "title": "grid remains responsive after many pan operations",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "ci",
+                  "projectName": "ci",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "staging",
+                  "projectName": "staging",
+                  "results": [],
+                  "status": "skipped"
+                },
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "production",
+                  "projectName": "production",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "350f877ad62c46bf2806-a0a7b1d892cec841ab9a",
+              "file": "test-panning.spec.js",
+              "line": 281,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "test.spec.js",
+      "file": "test.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "page loads and WASM initializes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ci",
+              "projectName": "ci",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "staging",
+              "projectName": "staging",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "production",
+              "projectName": "production",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "31be70adcd52654ff551-c9d3e8ab157dc63ef473",
+          "file": "test.spec.js",
+          "line": 24,
+          "column": 1
+        },
+        {
+          "title": "arrow keys pan the grid",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ci",
+              "projectName": "ci",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "staging",
+              "projectName": "staging",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "production",
+              "projectName": "production",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "31be70adcd52654ff551-83ea59c0860981087a22",
+          "file": "test.spec.js",
+          "line": 41,
+          "column": 1
+        },
+        {
+          "title": "checkboxes can be clicked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "ci",
+              "projectName": "ci",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "staging",
+              "projectName": "staging",
+              "results": [],
+              "status": "skipped"
+            },
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "production",
+              "projectName": "production",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "31be70adcd52654ff551-adb5892109ab1e8a9d73",
+          "file": "test.spec.js",
+          "line": 67,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-03-17T10:40:32.635Z",
+    "duration": 79.97699999999998,
+    "expected": 0,
+    "skipped": 75,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

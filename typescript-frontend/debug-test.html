@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SpacetimeDB Debug Test</title>
+    <script type="module">
+        // Import directly from the built app bundle
+        import { CheckboxDatabase } from './dist/assets/index-CL3aBk1W.js';
+        
+        window.testDatabase = async function() {
+            console.log('🧪 Starting simple database test...');
+            
+            const db = new CheckboxDatabase('http://localhost:3001', 'checkboxes-local-demo');
+            
+            try {
+                console.log('📞 Connecting to database...');
+                const connected = await db.connect();
+                
+                if (!connected) {
+                    console.error('❌ Failed to connect');
+                    return;
+                }
+                
+                console.log('✅ Connected successfully');
+                
+                // Set up callbacks
+                db.onCheckboxChunkInsert((chunk) => {
+                    console.log('🔔 INSERT EVENT RECEIVED:', chunk);
+                });
+                
+                db.onCheckboxChunkUpdate((chunk) => {
+                    console.log('🔔 UPDATE EVENT RECEIVED:', chunk);
+                });
+                
+                // Add chunk
+                console.log('📞 Adding chunk 0...');
+                await db.addChunk(0);
+                console.log('✅ Chunk added');
+                
+                // Update checkbox
+                console.log('📞 Updating checkbox 0:42 to true...');
+                await db.updateCheckbox(0, 42, true);
+                console.log('✅ Checkbox updated');
+                
+                // Query chunks
+                setTimeout(async () => {
+                    console.log('📞 Querying all chunks...');
+                    const chunks = await db.getAllChunks();
+                    console.log('✅ Chunks:', chunks);
+                }, 2000);
+                
+            } catch (error) {
+                console.error('❌ Test failed:', error);
+            }
+        };
+    </script>
+</head>
+<body>
+    <h1>SpacetimeDB Debug Test</h1>
+    <button onclick="testDatabase()">Run Database Test</button>
+    <p>Check browser console for output</p>
+</body>
+</html>
