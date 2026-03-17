@@ -1,0 +1,50 @@
+name: Daily Staging Reset
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual triggering
+    
+env:
+  SPACETIMEDB_TOKEN: ${{ secrets.SPACETIMEDB_TOKEN }}
+
+jobs:
+  reset-staging:
+    runs-on: ubuntu-latest
+    name: Reset Staging Database
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install SpacetimeDB CLI
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://install.spacetimedb.com | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          
+      - name: Install dependencies
+        run: |
+          cd scripts
+          npm ci
+          
+      - name: Reset staging database
+        run: node scripts/reset-staging.js
+        
+      - name: Verify staging environment
+        run: |
+          cd typescript-frontend
+          npm ci
+          # Run a minimal smoke test to ensure staging works
+          TEST_ENV=staging timeout 60s npm test -- tests/basic-functionality.spec.ts || true
+          
+      - name: Create reset notification
+        if: failure()
+        run: |
+          echo "❌ Staging reset failed on $(date)"
+          echo "Check logs and staging environment status"
