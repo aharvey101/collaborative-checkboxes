@@ -3,7 +3,7 @@ import fs from 'fs-extra';
 import { execSync } from 'child_process';
 import path from 'path';
 
-const BACKEND_DIR = path.resolve('./backend');
+const BACKEND_DIR = path.resolve('../backend');
 const CONFIGS = {
   production: 'spacetime.json',
   staging: 'spacetime.staging.json', 
