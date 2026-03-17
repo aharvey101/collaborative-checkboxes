@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { resetTestState } from '../scripts/reset-test-state.js';
 import { execSync } from 'child_process';
 
@@ -23,4 +24,9 @@ export default async function globalSetup() {
     console.log('⚠️ Test state reset failed during setup:', error.message);
     // Don't fail setup - tests may still work
   }
+}
+
+// Allow direct execution
+if (import.meta.url === `file://${process.argv[1]}`) {
+  await globalSetup();
 }

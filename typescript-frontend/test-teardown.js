@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { resetTestState } from '../scripts/reset-test-state.js';
 
 /**
@@ -14,4 +15,9 @@ export default async function globalTeardown() {
     console.log('⚠️ Test cleanup failed:', error.message);
     // Don't fail teardown - cleanup is best effort
   }
+}
+
+// Allow direct execution
+if (import.meta.url === `file://${process.argv[1]}`) {
+  await globalTeardown();
 }
