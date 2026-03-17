@@ -1,12 +1,26 @@
 import { test, expect } from '@playwright/test';
 
+// Enhanced error handling for SpacetimeDB connection issues
+test.beforeEach(async ({ page }) => {
+  page.on('console', msg => {
+    if (msg.type() === 'error' || msg.text().includes('ERROR')) {
+      console.log(`[BROWSER ERROR] ${msg.text()}`);
+    }
+  });
+  
+  page.on('pageerror', err => {
+    console.log(`[PAGE ERROR] ${err.message}`);
+  });
+});
+
 test.describe('Mouse interactions and visual feedback', () => {
 
   test('checkboxes can be toggled by clicking', async ({ page }) => {
     page.on('console', msg => console.log('[CONSOLE]', msg.text()));
     page.on('pageerror', err => console.log('[ERROR]', err));
     
-    await page.goto(`http://localhost:8000/?t=${Date.now()}`, { waitUntil: 'networkidle' });
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+    await page.goto(`${baseURL}/?t=${Date.now()}`, { waitUntil: 'networkidle' });
     
     await page.waitForFunction(() => {
       return document.getElementById('app')?.innerHTML.includes('grid');
@@ -43,7 +57,8 @@ test.describe('Mouse interactions and visual feedback', () => {
     page.on('console', msg => console.log('[CONSOLE]', msg.text()));
     page.on('pageerror', err => console.log('[ERROR]', err));
     
-    await page.goto(`http://localhost:8000/?t=${Date.now()}`, { waitUntil: 'networkidle' });
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+    await page.goto(`${baseURL}/?t=${Date.now()}`, { waitUntil: 'networkidle' });
     
     await page.waitForFunction(() => {
       return document.getElementById('app')?.innerHTML.includes('grid');
@@ -68,7 +83,8 @@ test.describe('Mouse interactions and visual feedback', () => {
     page.on('console', msg => console.log('[CONSOLE]', msg.text()));
     page.on('pageerror', err => console.log('[ERROR]', err));
     
-    await page.goto(`http://localhost:8000/?t=${Date.now()}`, { waitUntil: 'networkidle' });
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+    await page.goto(`${baseURL}/?t=${Date.now()}`, { waitUntil: 'networkidle' });
     
     await page.waitForFunction(() => {
       return document.getElementById('app')?.innerHTML.includes('grid');
@@ -115,7 +131,8 @@ test.describe('Mouse interactions and visual feedback', () => {
     page.on('console', msg => console.log('[CONSOLE]', msg.text()));
     page.on('pageerror', err => console.log('[ERROR]', err));
     
-    await page.goto(`http://localhost:8000/?t=${Date.now()}`, { waitUntil: 'networkidle' });
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+    await page.goto(`${baseURL}/?t=${Date.now()}`, { waitUntil: 'networkidle' });
     
     await page.waitForFunction(() => {
       return document.getElementById('app')?.innerHTML.includes('grid');
@@ -146,7 +163,8 @@ test.describe('Mouse interactions and visual feedback', () => {
     page.on('console', msg => console.log('[CONSOLE]', msg.text()));
     page.on('pageerror', err => console.log('[ERROR]', err));
     
-    await page.goto(`http://localhost:8000/?t=${Date.now()}`, { waitUntil: 'networkidle' });
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+    await page.goto(`${baseURL}/?t=${Date.now()}`, { waitUntil: 'networkidle' });
     
     await page.waitForFunction(() => {
       return document.getElementById('app')?.innerHTML.includes('grid');
@@ -182,7 +200,8 @@ test.describe('Mouse interactions and visual feedback', () => {
     page.on('console', msg => console.log('[CONSOLE]', msg.text()));
     page.on('pageerror', err => console.log('[ERROR]', err));
     
-    await page.goto(`http://localhost:8000/?t=${Date.now()}`, { waitUntil: 'networkidle' });
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+    await page.goto(`${baseURL}/?t=${Date.now()}`, { waitUntil: 'networkidle' });
     
     await page.waitForFunction(() => {
       return document.getElementById('app')?.innerHTML.includes('grid');
@@ -203,7 +222,8 @@ test.describe('Mouse interactions and visual feedback', () => {
     page.on('console', msg => console.log('[CONSOLE]', msg.text()));
     page.on('pageerror', err => console.log('[ERROR]', err));
     
-    await page.goto(`http://localhost:8000/?t=${Date.now()}`, { waitUntil: 'networkidle' });
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+    await page.goto(`${baseURL}/?t=${Date.now()}`, { waitUntil: 'networkidle' });
     
     await page.waitForFunction(() => {
       return document.getElementById('app')?.innerHTML.includes('grid');
@@ -227,7 +247,8 @@ test.describe('Mouse interactions and visual feedback', () => {
     page.on('console', msg => console.log('[CONSOLE]', msg.text()));
     page.on('pageerror', err => console.log('[ERROR]', err));
     
-    await page.goto(`http://localhost:8000/?t=${Date.now()}`, { waitUntil: 'networkidle' });
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8000';
+    await page.goto(`${baseURL}/?t=${Date.now()}`, { waitUntil: 'networkidle' });
     
     await page.waitForFunction(() => {
       return document.getElementById('app')?.innerHTML.includes('grid');
