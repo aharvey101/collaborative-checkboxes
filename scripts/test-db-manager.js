@@ -2,8 +2,15 @@
 import fs from 'fs-extra';
 import { execSync } from 'child_process';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
-const BACKEND_DIR = path.resolve('../backend');
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const BACKEND_DIR = path.resolve(__dirname, '../backend');
 const CONFIGS = {
   production: 'spacetime.production.json',
   staging: 'spacetime.staging.json', 
