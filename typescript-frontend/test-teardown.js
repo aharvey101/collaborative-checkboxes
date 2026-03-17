@@ -1,22 +1,17 @@
-#!/usr/bin/env node
+import { resetTestState } from '../scripts/reset-test-state.js';
 
 /**
- * Playwright global teardown for SpacetimeDB collaborative checkbox tests
- * Cleans up test environment
+ * Global teardown for Playwright tests - cleanup SpacetimeDB state
  */
-async function globalTeardown() {
-  console.log('🧹 Starting Playwright global teardown...');
+export default async function globalTeardown() {
+  console.log('🧹 Cleaning up test environment...');
   
+  // Reset SpacetimeDB state after all tests
   try {
-    // For now, teardown is minimal since setup only resets test state
-    // In the future, this could include cleanup tasks like stopping test servers
-    
-    console.log('✅ Playwright global teardown completed successfully');
+    await resetTestState();
+    console.log('✅ Test environment cleanup complete');
   } catch (error) {
-    console.error('⚠️ Global teardown encountered an issue:', error.message);
-    // Don't throw here - teardown failures shouldn't fail the test run
-    console.log('Test results are still valid despite teardown issues');
+    console.log('⚠️ Test cleanup failed:', error.message);
+    // Don't fail teardown - cleanup is best effort
   }
 }
-
-export default globalTeardown;

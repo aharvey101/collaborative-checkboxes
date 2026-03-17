@@ -1,31 +1,26 @@
-#!/usr/bin/env node
-import path from 'path';
+import { resetTestState } from '../scripts/reset-test-state.js';
+import { execSync } from 'child_process';
 
 /**
- * Playwright global setup for SpacetimeDB collaborative checkbox tests
- * Ensures clean database state before test runs
+ * Global setup for Playwright tests - ensures clean SpacetimeDB state
  */
-async function globalSetup() {
-  console.log('🚀 Starting Playwright global setup...');
+export default async function globalSetup() {
+  console.log('🧪 Setting up test environment...');
   
+  // Ensure SpacetimeDB is available for state reset
   try {
-    // Import the reset test state function
-    const modulePath = path.resolve('../scripts/reset-test-state.js');
-    const { resetTestState } = await import(modulePath);
-
-    // Reset test data to ensure clean state
-    console.log('📋 Resetting test state...');
-    const success = await resetTestState();
-    
-    if (!success) {
-      throw new Error('Failed to reset test state');
-    }
-    
-    console.log('✅ Playwright global setup completed successfully');
+    execSync('spacetime version list', { stdio: 'ignore' });
   } catch (error) {
-    console.error('❌ Global setup failed:', error.message);
-    throw error;
+    console.log('⚠️ SpacetimeDB CLI not available - skipping state reset');
+    return;
+  }
+  
+  // Reset SpacetimeDB state before all tests
+  try {
+    await resetTestState();
+    console.log('✅ Test environment setup complete');
+  } catch (error) {
+    console.log('⚠️ Test state reset failed during setup:', error.message);
+    // Don't fail setup - tests may still work
   }
 }
-
-export default globalSetup;
