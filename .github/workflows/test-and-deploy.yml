@@ -36,16 +36,16 @@ jobs:
         run: |
           curl --proto '=https' --tlsv1.2 -sSf \
             https://install.spacetimedb.com | sh -s -- -y
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
         run: |
           echo "Installing typescript-frontend dependencies..."
           cd typescript-frontend
-          npm ci --verbose
+          npm install --verbose
           echo "Installing scripts dependencies..."
           cd ../scripts
-          npm ci --verbose
+          npm install --verbose
           echo "Dependency installation complete"
 
       - name: Install Playwright browsers
@@ -130,7 +130,7 @@ jobs:
         run: |
           curl --proto '=https' --tlsv1.2 -sSf \
             https://install.spacetimedb.com | sh -s -- -y
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Build backend module
         run: |
@@ -146,7 +146,7 @@ jobs:
       - name: Run staging smoke tests
         run: |
           cd typescript-frontend
-          npm ci
+          npm install
           TEST_ENV=staging npm run test:staging
 
       - name: Cleanup staging deployment
@@ -173,7 +173,7 @@ jobs:
         run: |
           curl --proto '=https' --tlsv1.2 -sSf \
             https://install.spacetimedb.com | sh -s -- -y
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Build backend module
         run: |
@@ -194,7 +194,7 @@ jobs:
       - name: Deploy frontend to Netlify
         run: |
           cd typescript-frontend
-          npm ci
+          npm install
           npm run build
           npx netlify deploy --prod --dir=dist --auth=$NETLIFY_TOKEN
 
