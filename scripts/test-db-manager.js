@@ -92,8 +92,13 @@ class TestDatabaseManager {
     }
   }
 
+  /**
+   * Reset test database state by clearing all checkbox data
+   * @throws {Error} If the reset operation fails
+   */
   async resetTestData() {
-    const { resetTestState } = await import('./reset-test-state.js');
+    const resetStateModulePath = path.resolve(path.dirname(import.meta.url.replace('file://', '')), './reset-test-state.js');
+    const { resetTestState } = await import(resetStateModulePath);
     const success = await resetTestState();
     if (success) {
       console.log('✓ Test data reset completed');
