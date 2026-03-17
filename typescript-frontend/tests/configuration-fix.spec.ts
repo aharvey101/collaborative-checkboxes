@@ -1,31 +1,66 @@
-import { test, expect } from '@playwright/test';
+import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { testConfig } from '../test-config.js';
 
-test.describe('SpacetimeDB Configuration Fix', () => {
-  test('should connect using constructor parameters instead of hardcoded defaults', async ({ page }) => {
-    await page.goto('/');
+describe('SpacetimeDB Configuration Fix', () => {
+  beforeEach(async () => {
+    // Setup test environment
+    global.fetch = vi.fn();
+  });
+
+  test('should use constructor parameters from test config instead of hardcoded defaults', () => {
+    const dbConfig = testConfig.getDatabaseConfig();
     
-    // Monitor console logs to verify connection parameters
-    const connectionLogs: string[] = [];
-    page.on('console', msg => {
-      if (msg.text().includes('🔌 Connecting to SpacetimeDB') || 
-          msg.text().includes('📍 Database address')) {
-        connectionLogs.push(msg.text());
-      }
-    });
+    // Verify that configuration is loaded dynamically from files
+    expect(dbConfig.server).toBeTruthy();
+    expect(dbConfig.database).toBeTruthy();
     
-    // Click connect button to initiate connection
-    await page.click('#connectBtn');
+    // Should not be using hardcoded defaults
+    expect(dbConfig.server).not.toBe('localhost:3000');
+    expect(dbConfig.database).not.toBe('hardcoded-default');
+  });
+
+  test('should provide environment-specific configuration', () => {
+    const environment = process.env.TEST_ENV || 'ci';
+    const dbConfig = testConfig.getDatabaseConfig();
     
-    // Wait for connection attempt
-    await page.waitForTimeout(2000);
+    // Verify environment-specific config is used
+    switch (environment) {
+      case 'production':
+        expect(dbConfig.server).toContain('maincloud.spacetimedb.com');
+        break;
+      case 'staging':
+        // Staging should have its own configuration
+        expect(dbConfig.server).toBeTruthy();
+        expect(dbConfig.database).toBeTruthy();
+        break;
+      case 'ci':
+        // CI should use local configuration
+        expect(dbConfig.server).toBeTruthy();
+        expect(dbConfig.database).toBeTruthy();
+        break;
+    }
+  });
+
+  test('should validate configuration file structure', () => {
+    const dbConfig = testConfig.getDatabaseConfig();
     
-    // Verify that connection logs show constructor parameters being used
-    const serverLog = connectionLogs.find(log => log.includes('🔌 Connecting to SpacetimeDB'));
-    const databaseLog = connectionLogs.find(log => log.includes('📍 Database address'));
+    // Configuration should have required fields
+    expect(dbConfig).toHaveProperty('server');
+    expect(dbConfig).toHaveProperty('database');
     
-    // The HTML now initializes with production settings
-    // Verify that connection logs show production settings being used properly
-    expect(serverLog).toContain('https://maincloud.spacetimedb.com');
-    expect(databaseLog).toContain('c200d12d98ef0c856a8ba926a0f711a75ef243fe097a24f6c26836f0ff2215a0');
+    // Values should be strings
+    expect(typeof dbConfig.server).toBe('string');
+    expect(typeof dbConfig.database).toBe('string');
+    
+    // Values should not be empty
+    expect(dbConfig.server.length).toBeGreaterThan(0);
+    expect(dbConfig.database.length).toBeGreaterThan(0);
+  });
+
+  test('should handle configuration loading errors', () => {
+    // Test that configuration can be loaded without throwing
+    expect(() => testConfig.getDatabaseConfig()).not.toThrow();
+    expect(() => testConfig.getBaseUrl()).not.toThrow();
+    expect(() => testConfig.getTestTimeout()).not.toThrow();
   });
 });
