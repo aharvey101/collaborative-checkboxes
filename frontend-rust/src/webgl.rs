@@ -63,7 +63,8 @@ const FRAGMENT_SHADER: &str = r#"
         vec2 cellFrac = fract(gridPixel);
         
         // Calculate gap (1 pixel worth in cell space)
-        float gapSize = 1.0 / (u_cellSize * u_scale);
+        // Cap at 0.15 so grid lines don't consume entire cell at low zoom
+        float gapSize = min(1.0 / (u_cellSize * u_scale), 0.15);
         
         // Draw grid lines (gap between cells)
         if (cellFrac.x < gapSize || cellFrac.y < gapSize) {

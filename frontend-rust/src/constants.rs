@@ -2,7 +2,7 @@
 pub const GRID_WIDTH: u32 = 40_000;
 pub const GRID_HEIGHT: u32 = 25_000;
 pub const TOTAL_CHECKBOXES: u64 = GRID_WIDTH as u64 * GRID_HEIGHT as u64;
-pub const CELL_SIZE: f64 = 4.0;
+pub const CELL_SIZE: f64 = 8.0;
 
 // Chunk configuration
 pub const CHUNK_SIZE: u32 = 1_000; // 1000x1000 checkboxes per chunk
