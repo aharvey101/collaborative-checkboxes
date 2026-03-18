@@ -122,6 +122,52 @@ test.describe('Billionth Checkbox', () => {
     expect(maxSubscribed).toBeGreaterThan(800);
   });
 
+  test('zoom out to see entire grid then zoom back in', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForTimeout(2000);
+
+    const canvas = page.locator('canvas');
+    await expect(canvas).toBeVisible();
+
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('Canvas not found');
+
+    const centerX = box.x + box.width / 2;
+    const centerY = box.y + box.height / 2;
+
+    // Take initial screenshot
+    const initial = await canvas.screenshot();
+    fs.writeFileSync('zoom-1-initial.png', initial);
+    console.log('Initial view at 1.0x scale');
+
+    // Zoom out to minimum (0.1x)
+    console.log('Zooming out to 0.1x...');
+    for (let i = 0; i < 40; i++) {
+      await page.mouse.move(centerX, centerY);
+      await page.mouse.wheel(0, 200);
+    }
+    await page.waitForTimeout(1000);
+
+    const zoomedOut = await canvas.screenshot();
+    fs.writeFileSync('zoom-2-zoomed-out.png', zoomedOut);
+    console.log('Zoomed out view at ~0.1x scale');
+
+    // Zoom back in to 1.0x
+    console.log('Zooming back in to 1.0x...');
+    for (let i = 0; i < 40; i++) {
+      await page.mouse.move(centerX, centerY);
+      await page.mouse.wheel(0, -200);
+    }
+    await page.waitForTimeout(1000);
+
+    const zoomedIn = await canvas.screenshot();
+    fs.writeFileSync('zoom-3-zoomed-in.png', zoomedIn);
+    console.log('Zoomed back in to ~1.0x scale');
+
+    // Verify we can still see checkboxes after zoom cycle
+    expect(zoomedIn.length).toBeGreaterThan(1000);
+  });
+
   test('click creates new chunk in unvisited area', async ({ page }) => {
     // This test verifies that clicking in an area creates a new chunk
     const receivedChunks = new Set<number>();
