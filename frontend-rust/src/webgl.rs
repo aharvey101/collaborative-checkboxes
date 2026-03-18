@@ -115,9 +115,17 @@ pub struct WebGLRenderer {
 
 impl WebGLRenderer {
     pub fn new(canvas: &HtmlCanvasElement) -> Result<Self, String> {
-        // Get WebGL context
+        // Get WebGL context with preserveDrawingBuffer to allow incremental rendering
+        let context_options = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &context_options,
+            &"preserveDrawingBuffer".into(),
+            &true.into(),
+        )
+        .unwrap();
+
         let gl: GL = canvas
-            .get_context("webgl")
+            .get_context_with_context_options("webgl", &context_options)
             .map_err(|e| format!("Failed to get WebGL context: {:?}", e))?
             .ok_or("WebGL not supported")?
             .dyn_into()
