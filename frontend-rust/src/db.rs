@@ -7,7 +7,6 @@
 //! - Updating Leptos signals when data arrives
 //! - Sending reducer calls for checkbox toggles
 
-use crate::constants::{CHUNKS_X, CHUNK_SIZE, GRID_WIDTH};
 use crate::state::{AppState, ConnectionStatus};
 use crate::utils::{grid_to_chunk_id, grid_to_local, local_to_bit_offset};
 use crate::ws_client::{call_reducer, connect, subscribe, SharedClient, SpacetimeClient};

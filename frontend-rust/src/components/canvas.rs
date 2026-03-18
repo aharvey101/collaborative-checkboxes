@@ -7,9 +7,9 @@ use wasm_bindgen::JsCast;
 use web_sys::{MouseEvent, WheelEvent};
 
 use crate::constants::*;
-use crate::db::toggle_checkbox;
+use crate::db::{subscribe_to_chunks, toggle_checkbox};
 use crate::state::AppState;
-use crate::utils::canvas_to_grid;
+use crate::utils::{canvas_to_grid, visible_chunk_ids};
 use crate::webgl::WebGLRenderer;
 
 #[component]
@@ -57,11 +57,11 @@ pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
                     }
 
                     if let Some(ref r) = *renderer_borrow {
-                        let chunk_data = state_copy.chunk_data.get_untracked();
+                        let loaded_chunks = state_copy.loaded_chunks.get_untracked();
                         let offset_x = state_copy.offset_x.get_untracked();
                         let offset_y = state_copy.offset_y.get_untracked();
                         let scale = state_copy.scale.get_untracked();
-                        r.render(&canvas, &chunk_data, offset_x, offset_y, scale);
+                        r.render(&canvas, &loaded_chunks, offset_x, offset_y, scale);
                     }
                 }
             }) as Box<dyn FnOnce()>);
@@ -76,19 +76,34 @@ pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
         }
     };
 
-    // Render effect for viewport changes (pan/zoom) and server updates
+    // Render effect for viewport changes and chunk updates
     let request_render_effect = request_render.clone();
     Effect::new(move |_| {
         // Track viewport changes
         let _ = state.offset_x.get();
         let _ = state.offset_y.get();
         let _ = state.scale.get();
+        // Track chunk data changes
+        let _ = state.loaded_chunks.get();
         // Track server updates (incremented when server sends new data)
         let _ = state.render_version.get();
 
-        // No skip logic needed - we don't track chunk_data, so clicks don't trigger this Effect.
-        // Only viewport changes and server updates (render_version) trigger renders.
         request_render_effect();
+    });
+
+    // Chunk subscription effect - subscribe to visible chunks when viewport changes
+    Effect::new(move |_| {
+        let offset_x = state.offset_x.get();
+        let offset_y = state.offset_y.get();
+        let scale = state.scale.get();
+
+        if let Some(canvas) = canvas_ref.get() {
+            let width = canvas.width() as f64;
+            let height = canvas.height() as f64;
+
+            let visible = visible_chunk_ids(offset_x, offset_y, scale, width, height);
+            subscribe_to_chunks(state, visible);
+        }
     });
 
     // Window resize effect
