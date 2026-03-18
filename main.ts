@@ -1,73 +1,187 @@
 import { DbConnection } from "./generated";
 
-// Configuration - auto-detect production vs local
+// Configuration
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 const SPACETIMEDB_URI = isLocal ? "ws://127.0.0.1:3000" : "wss://maincloud.spacetimedb.com";
 const DATABASE_NAME = "checkboxes";
-const CHECKBOX_COUNT = 500; // 50x10 grid for demo
+
+// Grid configuration: 1000x1000 = 1 million checkboxes
+const GRID_WIDTH = 1000;
+const GRID_HEIGHT = 1000;
+const TOTAL_CHECKBOXES = GRID_WIDTH * GRID_HEIGHT;
+const CELL_SIZE = 4; // pixels per checkbox
+
+// Colors
+const COLOR_CHECKED = "#2ecc71";
+const COLOR_UNCHECKED = "#2c3e50";
+const COLOR_GRID = "#1a1a2e";
 
 // DOM elements
 const statusEl = document.getElementById("status")!;
-const gridEl = document.getElementById("checkbox-grid")!;
+const canvasEl = document.getElementById("checkbox-canvas") as HTMLCanvasElement;
 const statsEl = document.getElementById("stats")!;
+const ctx = canvasEl.getContext("2d")!;
 
-// Connection state
+// State
 let conn: DbConnection | null = null;
-let checkboxElements: HTMLInputElement[] = [];
+let chunkData: Uint8Array = new Uint8Array(125000); // 1M bits
+let checkedCount = 0;
 
-// Bit manipulation helpers
+// Viewport for pan/zoom
+let offsetX = 0;
+let offsetY = 0;
+let scale = 1;
+let isDragging = false;
+let lastMouseX = 0;
+let lastMouseY = 0;
+
+// Bit manipulation
 function getBit(data: Uint8Array, bitIndex: number): boolean {
   const byteIdx = Math.floor(bitIndex / 8);
   const bitIdx = bitIndex % 8;
   return byteIdx < data.length ? ((data[byteIdx] >> bitIdx) & 1) === 1 : false;
 }
 
-// Create checkbox elements
-function createCheckboxGrid() {
-  gridEl.innerHTML = "";
-  checkboxElements = [];
-
-  for (let i = 0; i < CHECKBOX_COUNT; i++) {
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.dataset.index = String(i);
-
-    checkbox.addEventListener("change", () => {
-      if (!conn) return;
-
-      const bitOffset = i;
-      const chunkId = 0; // All in chunk 0 for now
-
-      // Call reducer with object-style args (SpacetimeDB v2.0)
-      conn.reducers.updateCheckbox({
-        chunkId,
-        bitOffset,
-        checked: checkbox.checked,
-      });
-    });
-
-    gridEl.appendChild(checkbox);
-    checkboxElements.push(checkbox);
+function countChecked(data: Uint8Array): number {
+  let count = 0;
+  for (let i = 0; i < TOTAL_CHECKBOXES; i++) {
+    if (getBit(data, i)) count++;
   }
+  return count;
 }
 
-// Update checkboxes from chunk data
-function updateCheckboxesFromChunk(chunkId: number, state: Uint8Array) {
-  if (chunkId !== 0) return; // Only handling chunk 0 for now
-
-  let checkedCount = 0;
-  for (let i = 0; i < CHECKBOX_COUNT; i++) {
-    const isChecked = getBit(state, i);
-    if (checkboxElements[i]) {
-      checkboxElements[i].checked = isChecked;
-      if (isChecked) checkedCount++;
+// Rendering
+function render() {
+  const width = canvasEl.width;
+  const height = canvasEl.height;
+  
+  // Clear canvas
+  ctx.fillStyle = COLOR_GRID;
+  ctx.fillRect(0, 0, width, height);
+  
+  // Calculate visible range
+  const cellSize = CELL_SIZE * scale;
+  const startCol = Math.max(0, Math.floor(-offsetX / cellSize));
+  const startRow = Math.max(0, Math.floor(-offsetY / cellSize));
+  const endCol = Math.min(GRID_WIDTH, Math.ceil((width - offsetX) / cellSize));
+  const endRow = Math.min(GRID_HEIGHT, Math.ceil((height - offsetY) / cellSize));
+  
+  // Draw visible checkboxes
+  for (let row = startRow; row < endRow; row++) {
+    for (let col = startCol; col < endCol; col++) {
+      const bitIndex = row * GRID_WIDTH + col;
+      const isChecked = getBit(chunkData, bitIndex);
+      
+      const x = offsetX + col * cellSize;
+      const y = offsetY + row * cellSize;
+      
+      ctx.fillStyle = isChecked ? COLOR_CHECKED : COLOR_UNCHECKED;
+      ctx.fillRect(x + 0.5, y + 0.5, cellSize - 1, cellSize - 1);
     }
   }
-
-  statsEl.textContent = `${checkedCount} / ${CHECKBOX_COUNT} checked`;
 }
 
-// Set status display
+// Convert canvas coordinates to grid coordinates
+function canvasToGrid(canvasX: number, canvasY: number): { col: number; row: number } | null {
+  const cellSize = CELL_SIZE * scale;
+  const col = Math.floor((canvasX - offsetX) / cellSize);
+  const row = Math.floor((canvasY - offsetY) / cellSize);
+  
+  if (col >= 0 && col < GRID_WIDTH && row >= 0 && row < GRID_HEIGHT) {
+    return { col, row };
+  }
+  return null;
+}
+
+// Handle canvas click
+function handleClick(e: MouseEvent) {
+  if (!conn) return;
+  
+  const rect = canvasEl.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  
+  const grid = canvasToGrid(x, y);
+  if (grid) {
+    const bitIndex = grid.row * GRID_WIDTH + grid.col;
+    const currentState = getBit(chunkData, bitIndex);
+    
+    conn.reducers.updateCheckbox({
+      chunkId: 0,
+      bitOffset: bitIndex,
+      checked: !currentState,
+    });
+  }
+}
+
+// Pan handlers
+function handleMouseDown(e: MouseEvent) {
+  if (e.button === 0 && e.shiftKey) {
+    isDragging = true;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+    canvasEl.style.cursor = "grabbing";
+  }
+}
+
+function handleMouseMove(e: MouseEvent) {
+  if (isDragging) {
+    const dx = e.clientX - lastMouseX;
+    const dy = e.clientY - lastMouseY;
+    offsetX += dx;
+    offsetY += dy;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+    render();
+  }
+}
+
+function handleMouseUp() {
+  isDragging = false;
+  canvasEl.style.cursor = "crosshair";
+}
+
+// Zoom handler
+function handleWheel(e: WheelEvent) {
+  e.preventDefault();
+  
+  const rect = canvasEl.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+  
+  const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+  const newScale = Math.max(0.5, Math.min(10, scale * zoomFactor));
+  
+  // Zoom toward mouse position
+  const scaleChange = newScale / scale;
+  offsetX = mouseX - (mouseX - offsetX) * scaleChange;
+  offsetY = mouseY - (mouseY - offsetY) * scaleChange;
+  scale = newScale;
+  
+  render();
+}
+
+// Resize handler
+function handleResize() {
+  canvasEl.width = window.innerWidth - 40;
+  canvasEl.height = window.innerHeight - 120;
+  render();
+}
+
+// Update stats display
+function updateStats() {
+  statsEl.textContent = `${checkedCount.toLocaleString()} / ${TOTAL_CHECKBOXES.toLocaleString()} checked | Zoom: ${scale.toFixed(1)}x | Shift+drag to pan, scroll to zoom`;
+}
+
+// Update from chunk data
+function updateFromChunk(state: Uint8Array) {
+  chunkData = state;
+  checkedCount = countChecked(state);
+  updateStats();
+  render();
+}
+
+// Set status
 function setStatus(text: string, type: "connecting" | "connected" | "error") {
   statusEl.textContent = text;
   statusEl.className = `status ${type}`;
@@ -76,7 +190,6 @@ function setStatus(text: string, type: "connecting" | "connected" | "error") {
 // Connect to SpacetimeDB
 async function connect() {
   setStatus(`Connecting to ${isLocal ? "local" : "production"}...`, "connecting");
-  createCheckboxGrid();
 
   try {
     conn = await DbConnection.builder()
@@ -86,16 +199,16 @@ async function connect() {
         console.log("Connected with identity:", identity.toHexString());
         setStatus("Connected - subscribing...", "connecting");
 
-        // Subscribe to checkbox_chunk table
         connection
           .subscriptionBuilder()
           .onApplied(() => {
             console.log("Subscription applied");
             setStatus("Connected", "connected");
 
-            // Load initial state from any existing chunks
             for (const chunk of connection.db.checkbox_chunk.iter()) {
-              updateCheckboxesFromChunk(chunk.chunkId, chunk.state);
+              if (chunk.chunkId === 0) {
+                updateFromChunk(chunk.state);
+              }
             }
           })
           .onError((_ctx, error) => {
@@ -114,14 +227,16 @@ async function connect() {
       })
       .build();
 
-    // Listen for table updates
     conn.db.checkbox_chunk.onInsert((_ctx, row) => {
-      console.log("Chunk inserted:", row.chunkId);
-      updateCheckboxesFromChunk(row.chunkId, row.state);
+      if (row.chunkId === 0) {
+        updateFromChunk(row.state);
+      }
     });
 
     conn.db.checkbox_chunk.onUpdate((_ctx, _oldRow, newRow) => {
-      updateCheckboxesFromChunk(newRow.chunkId, newRow.state);
+      if (newRow.chunkId === 0) {
+        updateFromChunk(newRow.state);
+      }
     });
   } catch (error) {
     console.error("Failed to connect:", error);
@@ -129,5 +244,27 @@ async function connect() {
   }
 }
 
-// Start
-connect();
+// Initialize
+function init() {
+  // Set up canvas
+  handleResize();
+  window.addEventListener("resize", handleResize);
+  
+  // Set up interactions
+  canvasEl.addEventListener("click", handleClick);
+  canvasEl.addEventListener("mousedown", handleMouseDown);
+  canvasEl.addEventListener("mousemove", handleMouseMove);
+  canvasEl.addEventListener("mouseup", handleMouseUp);
+  canvasEl.addEventListener("mouseleave", handleMouseUp);
+  canvasEl.addEventListener("wheel", handleWheel, { passive: false });
+  canvasEl.style.cursor = "crosshair";
+  
+  // Initial render
+  render();
+  updateStats();
+  
+  // Connect
+  connect();
+}
+
+init();
