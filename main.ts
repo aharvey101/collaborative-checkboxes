@@ -27,6 +27,12 @@ let conn: DbConnection | null = null;
 let chunkData: Uint8Array = new Uint8Array(125000); // 1M bits
 let checkedCount = 0;
 
+// Performance tracking
+let renderTimes: number[] = [];
+let lastRenderTime = 0;
+let renderCount = 0;
+let pendingRender = false;
+
 // Viewport for pan/zoom
 let offsetX = 0;
 let offsetY = 0;
@@ -63,7 +69,9 @@ function countChecked(data: Uint8Array): number {
 }
 
 // Rendering
-function render() {
+function renderInternal() {
+  const start = performance.now();
+  
   const width = canvasEl.width;
   const height = canvasEl.height;
   
@@ -78,6 +86,8 @@ function render() {
   const endCol = Math.min(GRID_WIDTH, Math.ceil((width - offsetX) / cellSize));
   const endRow = Math.min(GRID_HEIGHT, Math.ceil((height - offsetY) / cellSize));
   
+  const visibleCount = (endRow - startRow) * (endCol - startCol);
+  
   // Draw visible checkboxes
   for (let row = startRow; row < endRow; row++) {
     for (let col = startCol; col < endCol; col++) {
@@ -91,6 +101,30 @@ function render() {
       ctx.fillRect(x + 0.5, y + 0.5, cellSize - 1, cellSize - 1);
     }
   }
+  
+  // Track performance
+  const elapsed = performance.now() - start;
+  renderTimes.push(elapsed);
+  if (renderTimes.length > 60) renderTimes.shift();
+  renderCount++;
+  lastRenderTime = elapsed;
+  
+  // Log every 60 frames
+  if (renderCount % 60 === 0) {
+    const avg = renderTimes.reduce((a, b) => a + b, 0) / renderTimes.length;
+    const max = Math.max(...renderTimes);
+    console.log(`[Render] last: ${elapsed.toFixed(2)}ms, avg: ${avg.toFixed(2)}ms, max: ${max.toFixed(2)}ms, visible: ${visibleCount.toLocaleString()} checkboxes`);
+  }
+}
+
+// Throttled render using requestAnimationFrame
+function render() {
+  if (pendingRender) return;
+  pendingRender = true;
+  requestAnimationFrame(() => {
+    pendingRender = false;
+    renderInternal();
+  });
 }
 
 // Convert canvas coordinates to grid coordinates
@@ -190,7 +224,8 @@ function handleResize() {
 
 // Update stats display
 function updateStats() {
-  statsEl.textContent = `${checkedCount.toLocaleString()} / ${TOTAL_CHECKBOXES.toLocaleString()} checked | Zoom: ${scale.toFixed(1)}x | Shift+drag to pan, scroll to zoom`;
+  const perfInfo = lastRenderTime > 0 ? ` | Render: ${lastRenderTime.toFixed(1)}ms` : '';
+  statsEl.textContent = `${checkedCount.toLocaleString()} / ${TOTAL_CHECKBOXES.toLocaleString()} checked | Zoom: ${scale.toFixed(1)}x${perfInfo} | Shift+drag to pan, scroll to zoom`;
 }
 
 // Update from chunk data
