@@ -84,6 +84,12 @@ pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
         let _ = state.offset_y.get();
         let _ = state.scale.get();
 
+        // Skip render if flagged (after immediate cell render)
+        if state.skip_next_render.get_untracked() {
+            state.skip_next_render.set(false);
+            return;
+        }
+
         request_render_effect();
     });
 
@@ -126,6 +132,9 @@ pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
         let scale = state.scale.get_untracked();
 
         if let Some((col, row)) = canvas_to_grid(x, y, offset_x, offset_y, scale) {
+            // Skip the next full render since we'll render this cell immediately
+            state.skip_next_render.set(true);
+
             // Toggle and get new value
             if let Some(new_value) = toggle_checkbox(state, col, row) {
                 // Immediate visual feedback - render just this cell
