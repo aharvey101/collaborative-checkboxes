@@ -44,6 +44,9 @@ pub struct AppState {
 
     // Skip next full render (used after immediate cell render)
     pub skip_next_render: RwSignal<bool>,
+
+    // Trigger full render (incremented when server sends updates)
+    pub render_version: RwSignal<u32>,
 }
 
 impl AppState {
@@ -61,6 +64,7 @@ impl AppState {
             last_mouse_y: RwSignal::new(0.0),
             render_pending: RwSignal::new(false),
             skip_next_render: RwSignal::new(false),
+            render_version: RwSignal::new(0),
         }
     }
 }
