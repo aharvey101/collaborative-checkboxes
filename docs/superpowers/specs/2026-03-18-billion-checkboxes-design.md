@@ -8,6 +8,7 @@ Scale the collaborative checkboxes app from 1 million to 1 billion checkboxes us
 - **Chunks:** 40 × 25 = 1,000 chunks, each 1,000 × 1,000 (1M checkboxes, 125KB)
 - **Loading:** Viewport + 1-chunk buffer, on-demand chunk creation
 - **Count display:** Removed (no aggregation overhead)
+- **Rendering:** Per-chunk texture rendering (multiple draw calls)
 
 ## Grid Layout
 
@@ -25,7 +26,9 @@ Scale the collaborative checkboxes app from 1 million to 1 billion checkboxes us
 
 ## Frontend Changes
 
-### Constants (`constants.rs`)
+### Constants (`frontend-rust/src/constants.rs`)
+
+Update existing constants file:
 
 ```rust
 // Grid configuration: 40,000 x 25,000 = 1 billion checkboxes
@@ -40,18 +43,29 @@ pub const CHUNKS_Y: u32 = 25;       // GRID_HEIGHT / CHUNK_SIZE
 pub const TOTAL_CHUNKS: u32 = CHUNKS_X * CHUNKS_Y;  // 1000
 ```
 
-### State (`state.rs`)
+### State (`frontend-rust/src/state.rs`)
 
 Replace single chunk with multi-chunk tracking:
 
 ```rust
-// Remove
+// Remove these fields:
 pub chunk_data: RwSignal<Vec<u8>>,
 pub checked_count: RwSignal<u32>,
 
-// Add
+// Add these fields:
 pub loaded_chunks: RwSignal<HashMap<u32, Vec<u8>>>,  // chunk_id -> data
-pub loading_chunks: RwSignal<HashSet<u32>>,          // chunks being fetched
+pub loading_chunks: RwSignal<HashSet<u32>>,          // chunks currently being fetched
+pub subscribed_chunks: RwSignal<HashSet<u32>>,       // chunks with active subscriptions
+```
+
+### Header Component (`frontend-rust/src/components/header.rs`)
+
+Remove checked count display. Update title and stats:
+
+```rust
+// Change title from "1 Million Checkboxes" to "1 Billion Checkboxes"
+// Remove checked_count from stats_text
+// Keep: Zoom level, pan/zoom instructions
 ```
 
 ### Chunk Coordinate System
@@ -69,9 +83,9 @@ Local coordinates within chunk:
   bit_offset = local_row * CHUNK_SIZE + local_col
 ```
 
-### Visible Chunk Calculation
+### Visible Chunk Calculation (`frontend-rust/src/utils.rs`)
 
-Given viewport state (offset_x, offset_y, scale, canvas_width, canvas_height):
+Add new function:
 
 ```rust
 fn visible_chunk_range(
@@ -97,18 +111,52 @@ fn visible_chunk_range(
 }
 ```
 
-### Chunk Subscription Management
+### Chunk Subscription Management (`frontend-rust/src/db.rs`)
 
-Track currently subscribed chunks. When visible range changes:
+Add chunk subscription manager using existing SpacetimeDB patterns:
 
-1. Calculate newly visible chunks (need to subscribe)
-2. Calculate no-longer-visible chunks (can unsubscribe)
-3. Subscribe to new chunks via SpacetimeDB
-4. Unsubscribe from old chunks to free memory
+```rust
+/// Subscribe to a specific chunk
+pub fn subscribe_chunk(client: &SharedClient, chunk_id: u32) {
+    let query = format!("SELECT * FROM checkbox_chunk WHERE chunk_id = {}", chunk_id);
+    // Use existing subscribe() function from ws_client
+    subscribe(client, &[&query]);
+}
 
-### WebGL Renderer Changes
+/// Unsubscribe from a chunk (remove from local state, stop tracking)
+pub fn unsubscribe_chunk(state: AppState, chunk_id: u32) {
+    state.loaded_chunks.update(|chunks| { chunks.remove(&chunk_id); });
+    state.subscribed_chunks.update(|subs| { subs.remove(&chunk_id); });
+}
 
-The renderer needs to handle multiple chunks:
+/// Update subscriptions based on visible range
+pub fn update_chunk_subscriptions(
+    client: &SharedClient,
+    state: AppState,
+    visible_chunks: HashSet<u32>,
+) {
+    let current_subs = state.subscribed_chunks.get_untracked();
+    
+    // Subscribe to newly visible chunks
+    for chunk_id in visible_chunks.difference(&current_subs) {
+        if !state.loading_chunks.get_untracked().contains(chunk_id) {
+            state.loading_chunks.update(|loading| { loading.insert(*chunk_id); });
+            subscribe_chunk(client, *chunk_id);
+        }
+    }
+    
+    // Unsubscribe from chunks no longer visible
+    for chunk_id in current_subs.difference(&visible_chunks) {
+        unsubscribe_chunk(state, *chunk_id);
+    }
+}
+```
+
+**SpacetimeDB callback handling:** Update existing `on_chunk_insert` and `on_chunk_update` callbacks to handle any chunk_id (not just 0).
+
+### WebGL Renderer Changes (`frontend-rust/src/webgl.rs`)
+
+Render each visible chunk separately (multiple draw calls per frame):
 
 ```rust
 pub fn render(
@@ -119,21 +167,53 @@ pub fn render(
     offset_y: f64,
     scale: f64,
 ) {
-    // For each visible chunk:
-    //   1. If loaded, upload texture and render
-    //   2. If not loaded, render as background color (empty grid)
+    // Clear entire canvas with grid background color
+    self.gl.clear_color(...);
+    self.gl.clear(GL::COLOR_BUFFER_BIT);
+    
+    // Calculate visible chunk range
+    let (min_cx, min_cy, max_cx, max_cy) = visible_chunk_range(...);
+    
+    // Render each loaded chunk
+    for cy in min_cy..=max_cy {
+        for cx in min_cx..=max_cx {
+            let chunk_id = cx + cy * CHUNKS_X;
+            if let Some(chunk_data) = loaded_chunks.get(&chunk_id) {
+                self.render_chunk(canvas, chunk_id, chunk_data, offset_x, offset_y, scale);
+            }
+            // Unloaded chunks: background color already cleared, nothing to do
+        }
+    }
+}
+
+fn render_chunk(
+    &self,
+    canvas: &HtmlCanvasElement,
+    chunk_id: u32,
+    chunk_data: &[u8],
+    offset_x: f64,
+    offset_y: f64,
+    scale: f64,
+) {
+    // Calculate chunk's world position
+    let chunk_x = chunk_id % CHUNKS_X;
+    let chunk_y = chunk_id / CHUNKS_X;
+    let chunk_offset_x = offset_x + (chunk_x * CHUNK_SIZE) as f64 * CELL_SIZE * scale;
+    let chunk_offset_y = offset_y + (chunk_y * CHUNK_SIZE) as f64 * CELL_SIZE * scale;
+    
+    // Upload chunk texture and render with adjusted uniforms
+    self.upload_texture(chunk_data);
+    self.gl.uniform2f(Some(&self.u_offset), chunk_offset_x as f32, chunk_offset_y as f32);
+    self.gl.draw_arrays(GL::TRIANGLES, 0, 6);
 }
 ```
 
-Option A: Single texture atlas (complex, limited by max texture size)
-Option B: Render each chunk separately (simpler, multiple draw calls)
+### Click Handling (`frontend-rust/src/components/canvas.rs`)
 
-Recommend Option B for simplicity. With viewport culling, only ~4-12 chunks visible at typical zoom levels.
-
-### Click Handling
+Update click handler to compute chunk coordinates:
 
 ```rust
-fn on_click(global_col: u32, global_row: u32) {
+fn on_click(global_col: u32, global_row: u32, state: AppState) {
     let chunk_x = global_col / CHUNK_SIZE;
     let chunk_y = global_row / CHUNK_SIZE;
     let chunk_id = chunk_x + chunk_y * CHUNKS_X;
@@ -142,14 +222,25 @@ fn on_click(global_col: u32, global_row: u32) {
     let local_row = global_row % CHUNK_SIZE;
     let bit_offset = local_row * CHUNK_SIZE + local_col;
     
+    // Get current value from loaded chunk (or assume unchecked if not loaded)
+    let current_value = state.loaded_chunks.with_untracked(|chunks| {
+        chunks.get(&chunk_id).map(|data| get_bit(data, bit_offset as usize)).unwrap_or(false)
+    });
+    let new_value = !current_value;
+    
     // Optimistic local update
-    update_local_chunk(chunk_id, bit_offset, new_value);
+    state.loaded_chunks.update(|chunks| {
+        if let Some(data) = chunks.get_mut(&chunk_id) {
+            set_bit(data, bit_offset as usize, new_value);
+        }
+    });
     
     // Immediate visual feedback
     render_cell_immediate(...);
     
-    // Send to server
-    call_reducer("update_checkbox", chunk_id, bit_offset, new_value);
+    // Send to server using existing reducer signature
+    // update_checkbox(ctx, chunk_id: u32, bit_offset: u32, checked: bool)
+    call_reducer_update_checkbox(chunk_id, bit_offset, new_value);
 }
 ```
 
@@ -157,33 +248,39 @@ fn on_click(global_col: u32, global_row: u32) {
 
 ### Schema
 
-No changes needed. Existing `CheckboxChunk` table works:
+No changes needed. Existing `CheckboxChunk` table and `update_checkbox` reducer already support any `chunk_id` value:
 
 ```rust
-#[table(accessor = checkbox_chunk, public)]
-pub struct CheckboxChunk {
-    #[primary_key]
-    pub chunk_id: u32,      // 0-999 for billion checkboxes
-    pub state: Vec<u8>,     // 125KB per chunk
-    pub version: u64,
+// backend/src/lib.rs - existing code handles this correctly:
+#[reducer]
+pub fn update_checkbox(ctx: &ReducerContext, chunk_id: u32, bit_offset: u32, checked: bool) {
+    // Finds existing chunk OR creates new one - works for any chunk_id
+    if let Some(mut row) = ctx.db.checkbox_chunk().chunk_id().find(chunk_id) {
+        // Update existing
+    } else {
+        // Create new chunk with this chunk_id
+    }
 }
 ```
 
-### Reducers
+Verified: No hardcoded assumptions about chunk 0.
 
-No changes needed. Existing `update_checkbox` already:
-- Creates chunk on first access
-- Updates bit at offset
-- Increments version
+## Files to Modify
 
-### Removed
-
-Remove checked count display from UI (no `checked_count` signal, no count aggregation).
+| File | Changes |
+|------|---------|
+| `frontend-rust/src/constants.rs` | Update grid dimensions, add chunk constants |
+| `frontend-rust/src/state.rs` | Replace `chunk_data`/`checked_count` with multi-chunk state |
+| `frontend-rust/src/components/header.rs` | Remove count display, update title |
+| `frontend-rust/src/utils.rs` | Add `visible_chunk_range()` function |
+| `frontend-rust/src/db.rs` | Add chunk subscription management, update callbacks |
+| `frontend-rust/src/webgl.rs` | Multi-chunk rendering with per-chunk draw calls |
+| `frontend-rust/src/components/canvas.rs` | Update click handler for chunk coordinates |
 
 ## Migration
 
 No data migration needed:
-- Existing chunk 0 contains the original 1M checkboxes
+- Existing chunk 0 contains the original 1M checkboxes (top-left of grid)
 - Grid expands to include new chunk coordinates
 - Empty chunks created on-demand when users explore new areas
 
@@ -193,17 +290,18 @@ No data migration needed:
 
 - Each loaded chunk: 125KB
 - Typical viewport: 4-12 chunks visible
-- With buffer: ~500KB - 1.5MB in memory
+- With 1-chunk buffer: ~500KB - 1.5MB in memory
 - Well within browser limits
 
 ### Network
 
 - Initial load: 1-4 chunks (~125-500KB)
 - Panning: subscribe/unsubscribe as chunks enter/leave viewport
-- Chunk updates: only subscribed chunks receive updates
+- Chunk updates: only subscribed chunks receive real-time updates
 
 ### Rendering
 
-- WebGL renders only loaded chunks
-- Unloaded areas show as grid background
+- WebGL renders only loaded chunks in visible range
+- Per-chunk draw calls (4-12 per frame typical)
+- Unloaded areas show as grid background color
 - Immediate cell rendering unchanged
