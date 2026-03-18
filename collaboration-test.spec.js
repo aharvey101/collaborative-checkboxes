@@ -15,43 +15,21 @@ test('real-time checkbox synchronization', async ({ browser }) => {
       page2.goto(baseURL)
     ]);
     
-    // Connect to SpacetimeDB in both browsers
+    // Wait for app initialization
     await Promise.all([
-      page1.click('button:has-text("Connect to SpacetimeDB")'),
-      page2.click('button:has-text("Connect to SpacetimeDB")')
+      page1.waitForSelector('#grid'),
+      page2.waitForSelector('#grid')
     ]);
     
-    // Wait for app initialization and canvas grid to appear
-    await Promise.all([
-      page1.waitForSelector('#checkboxCanvas'),
-      page2.waitForSelector('#checkboxCanvas')
-    ]);
+    // Find first checkbox in both browsers
+    const checkbox1 = page1.locator('input[type="checkbox"]').first();
+    const checkbox2 = page2.locator('input[type="checkbox"]').first();
     
-    // Wait a moment for the grid to fully initialize
-    await page1.waitForTimeout(2000);
+    // Click in browser1
+    await checkbox1.click();
     
-    // Click on the canvas in browser1 (simulate checkbox click)
-    const canvas1 = page1.locator('#checkboxCanvas');
-    const canvas2 = page2.locator('#checkboxCanvas');
-    
-    // Click at a specific position on the canvas (top-left area)
-    await canvas1.click({ position: { x: 50, y: 50 } });
-    
-    // For canvas-based checkboxes, we need to verify sync by checking 
-    // the canvas content or associated data structures
-    // Since this is a real-time collaborative app, we'll verify that
-    // both pages are connected and responding
-    
-    // Wait a moment for sync to occur
-    await page1.waitForTimeout(3000);
-    
-    // Verify that both canvases are present and the app is connected
-    await expect(canvas1).toBeVisible();
-    await expect(canvas2).toBeVisible();
-    
-    // Check that status shows connected in both browsers
-    await expect(page1.locator('#status')).toContainText('Connected');
-    await expect(page2.locator('#status')).toContainText('Connected');
+    // Verify sync in browser2
+    await expect(checkbox2).toBeChecked({ timeout: 5000 });
     
   } finally {
     await context1.close();
