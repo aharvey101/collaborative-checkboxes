@@ -10,7 +10,10 @@
     "build:frontend": "esbuild main.ts --bundle --outfile=main.js --format=esm --platform=browser",
     "dev": "npm run build:frontend && npx serve .",
     "watch": "esbuild main.ts --bundle --outfile=main.js --format=esm --platform=browser --watch",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "build:rust-frontend": "cd frontend-rust && trunk build",
+    "dev:rust-frontend": "cd frontend-rust && trunk serve --port 8081",
+    "watch:rust-frontend": "cd frontend-rust && trunk watch"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

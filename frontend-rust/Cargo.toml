@@ -9,9 +9,12 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 leptos = { version = "0.7", features = ["csr"] }
 
-# SpacetimeDB SDK: currently disabled for WASM due to openssl-sys dependency issue
-# Will be re-enabled in Chunk 3/4 when SpacetimeDB integration is implemented
-# spacetimedb-sdk = "2.0"
+# SpacetimeDB protocol types (WASM-compatible, no native dependencies)
+spacetimedb-sats = "2.0"
+spacetimedb-lib = "2.0"
+spacetimedb-client-api-messages = "2.0"
+
+# WASM/web dependencies
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
@@ -25,10 +28,21 @@ web-sys = { version = "0.3", features = [
     "DomRect",
     "Location",
     "console",
+    "WebSocket",
+    "MessageEvent",
+    "BinaryType",
+    "CloseEvent",
+    "ErrorEvent",
+    "Blob",
 ] }
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
 log = "0.4"
+
+# For decompression of server messages (brotli)
+brotli = { version = "3.5", default-features = false, features = ["std"] }
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
+bytes = "1.10"
 
 [profile.release]
 lto = true
