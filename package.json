@@ -1,21 +1,16 @@
 {
-  "name": "checkboxes-impl",
+  "name": "checkboxes",
   "version": "1.0.0",
-  "description": "A real-time collaborative checkbox grid supporting 1 million checkboxes (scalable to 1 billion) using SpacetimeDB 0.1 backend and vanilla WASM frontend.",
-  "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo 'Available test commands:' && echo '  npm run test:smoke   # Quick smoke tests only' && echo '  npm run test:e2e     # Full E2E test suite' && echo '  npm run test:full    # Complete test suite'",
-    "test:smoke": "npx playwright test smoke-test.spec.js",
-    "test:e2e": "cd typescript-frontend && npm run test:e2e",
-    "test:e2e:ci": "PLAYWRIGHT_BASE_URL=http://localhost:5173 TEST_ENV=ci npx playwright test --project=ci",
-    "test:integration": "cd typescript-frontend && npm run test:integration",
-    "test:full": "cd typescript-frontend && npm run test:full"
+    "build": "cd backend && cargo build --target wasm32-unknown-unknown --release",
+    "generate": "spacetime generate --lang typescript --out-dir ./generated --bin-path ./backend/target/wasm32-unknown-unknown/release/backend.wasm",
+    "publish": "spacetime publish checkboxes --bin-path ./backend/target/wasm32-unknown-unknown/release/backend.wasm",
+    "test:sync": "npx tsx test-websocket-sync.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "devDependencies": {
-    "@playwright/test": "^1.58.2"
+    "spacetimedb": "^2.0.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   }
 }

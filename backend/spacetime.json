@@ -1,4 +1,4 @@
 {
-  "server": "https://maincloud.spacetimedb.com",
-  "database": "collaborative-checkboxes-prod"
+  "server": "http://localhost:3000",
+  "database": "checkboxes"
 }

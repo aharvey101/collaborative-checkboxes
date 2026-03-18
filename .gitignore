@@ -25,3 +25,13 @@ build/
 Thumbs.db
 # Local Netlify folder
 .netlify
+
+# Generated SDK (regenerate with npm run generate)
+generated/
+
+# SpacetimeDB logs
+*.log
+
+# Test artifacts  
+test-results/
+playwright-report/
