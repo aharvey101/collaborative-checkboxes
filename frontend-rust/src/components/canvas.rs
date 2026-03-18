@@ -76,15 +76,18 @@ pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
         }
     };
 
-    // Render effect - schedules rAF when signals change
+    // Render effect for viewport changes (pan/zoom) and server updates
     let request_render_effect = request_render.clone();
     Effect::new(move |_| {
-        let _ = state.chunk_data.get();
+        // Track viewport changes
         let _ = state.offset_x.get();
         let _ = state.offset_y.get();
         let _ = state.scale.get();
+        // Track server updates (incremented when server sends new data)
+        let _ = state.render_version.get();
 
-        // Skip render if flagged (after immediate cell render)
+        // Skip render if we just did an immediate cell render
+        // (the skip flag is set by click handler after render_cell_immediate)
         if state.skip_next_render.get_untracked() {
             state.skip_next_render.set(false);
             return;

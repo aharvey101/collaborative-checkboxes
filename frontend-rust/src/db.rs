@@ -214,6 +214,8 @@ pub fn init_connection(state: AppState) {
                         let checked = count_checked(&chunk.state);
                         state_update.chunk_data.set(chunk.state);
                         state_update.checked_count.set(checked);
+                        // Trigger full re-render for server updates
+                        state_update.render_version.update(|v| *v += 1);
                     }
                 }
             }
