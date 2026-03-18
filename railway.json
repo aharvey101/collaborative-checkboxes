@@ -3,7 +3,7 @@
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "Dockerfile",
-    "watchPatterns": ["frontend-rust/**"]
+    "watchPatterns": ["frontend-rust/**", "Dockerfile"]
   },
   "deploy": {
     "restartPolicyType": "ON_FAILURE",
