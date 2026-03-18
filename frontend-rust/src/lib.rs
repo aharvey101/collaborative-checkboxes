@@ -1,11 +1,13 @@
 pub mod app;
 pub mod components;
 pub mod constants;
+pub mod db;
 pub mod state;
 pub mod utils;
-
-// Note: db module will be added in Chunk 3
+pub mod ws_client;
 
 // Re-export for convenience
 pub use app::App;
+pub use db::{init_connection, toggle_checkbox};
 pub use state::{AppState, ConnectionStatus};
+pub use ws_client::{SharedClient, SpacetimeClient};

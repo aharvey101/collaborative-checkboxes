@@ -4,8 +4,9 @@ use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, MouseEvent, WheelEvent};
 
 use crate::constants::*;
+use crate::db::toggle_checkbox;
 use crate::state::AppState;
-use crate::utils::{canvas_to_grid, count_bits, get_bit, set_bit};
+use crate::utils::{canvas_to_grid, get_bit};
 
 #[component]
 pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
@@ -158,17 +159,8 @@ fn handle_click(e: MouseEvent, state: &AppState, canvas_ref: &NodeRef<Canvas>) {
     let scale = state.scale.get();
 
     if let Some((col, row)) = canvas_to_grid(x, y, offset_x, offset_y, scale) {
-        let bit_index = row * GRID_WIDTH + col;
-
-        // Optimistic update (local only for now - SpacetimeDB integration in Chunk 4)
-        let mut data = state.chunk_data.get();
-        let current = get_bit(&data, bit_index);
-        set_bit(&mut data, bit_index, !current);
-        let new_count = count_bits(&data);
-        state.chunk_data.set(data);
-        state.checked_count.set(new_count);
-
-        // Note: Server sync will be added in Chunk 4 (Task 18)
+        // Toggle checkbox with optimistic update + server sync
+        toggle_checkbox(*state, col, row);
     }
 }
 
