@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionStatus {
@@ -23,11 +24,10 @@ pub struct AppState {
     pub status: RwSignal<ConnectionStatus>,
     pub status_message: RwSignal<String>,
 
-    // Checkbox data: 125KB for 1M bits
-    pub chunk_data: RwSignal<Vec<u8>>,
-
-    // Derived count
-    pub checked_count: RwSignal<u32>,
+    // Multi-chunk data storage
+    pub loaded_chunks: RwSignal<HashMap<u32, Vec<u8>>>, // chunk_id -> data
+    pub loading_chunks: RwSignal<HashSet<u32>>,         // chunks being fetched
+    pub subscribed_chunks: RwSignal<HashSet<u32>>,      // active subscriptions
 
     // Viewport state
     pub offset_x: RwSignal<f64>,
@@ -54,8 +54,9 @@ impl AppState {
         Self {
             status: RwSignal::new(ConnectionStatus::Connecting),
             status_message: RwSignal::new("Connecting...".to_string()),
-            chunk_data: RwSignal::new(vec![0u8; 125_000]),
-            checked_count: RwSignal::new(0),
+            loaded_chunks: RwSignal::new(HashMap::new()),
+            loading_chunks: RwSignal::new(HashSet::new()),
+            subscribed_chunks: RwSignal::new(HashSet::new()),
             offset_x: RwSignal::new(0.0),
             offset_y: RwSignal::new(0.0),
             scale: RwSignal::new(1.0),
