@@ -41,6 +41,9 @@ pub struct AppState {
 
     // Render throttling
     pub render_pending: RwSignal<bool>,
+
+    // Skip next full render (used after immediate cell render)
+    pub skip_next_render: RwSignal<bool>,
 }
 
 impl AppState {
@@ -57,6 +60,7 @@ impl AppState {
             last_mouse_x: RwSignal::new(0.0),
             last_mouse_y: RwSignal::new(0.0),
             render_pending: RwSignal::new(false),
+            skip_next_render: RwSignal::new(false),
         }
     }
 }
