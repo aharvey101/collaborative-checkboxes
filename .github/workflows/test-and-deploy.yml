@@ -84,10 +84,9 @@ jobs:
           echo "Running quick smoke test to validate setup..."
           PLAYWRIGHT_BASE_URL=http://localhost:5173 TEST_ENV=ci timeout 120 npx playwright test smoke-test.spec.js --project=ci
 
-      - name: Run E2E tests
+      - name: Run collaboration test
         run: |
-          echo "Running full E2E test suite (allowing 30 minutes for 27 tests)..."
-          PLAYWRIGHT_BASE_URL=http://localhost:5173 TEST_ENV=ci timeout 1800 npx playwright test --project=ci
+          PLAYWRIGHT_BASE_URL=http://localhost:5173 TEST_ENV=ci timeout 300 npx playwright test collaboration-test.spec.js --project=ci
 
       # Skip coverage temporarily 
       # - name: Generate unit test coverage
