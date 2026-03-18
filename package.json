@@ -9,9 +9,11 @@
     "test:sync": "npx tsx test-websocket-sync.ts",
     "build:frontend": "esbuild main.ts --bundle --outfile=main.js --format=esm --platform=browser",
     "dev": "npm run build:frontend && npx serve .",
-    "watch": "esbuild main.ts --bundle --outfile=main.js --format=esm --platform=browser --watch"
+    "watch": "esbuild main.ts --bundle --outfile=main.js --format=esm --platform=browser --watch",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "esbuild": "^0.25.0",
     "serve": "^14.2.4",
     "spacetimedb": "^2.0.4",
