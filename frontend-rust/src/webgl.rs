@@ -11,9 +11,7 @@ use web_sys::{
     WebGlUniformLocation,
 };
 
-use crate::constants::{
-    CELL_SIZE, CHUNKS_X, CHUNK_SIZE, COLOR_CHECKED, COLOR_GRID, COLOR_UNCHECKED,
-};
+use crate::constants::{CELL_SIZE, CHUNKS_X, CHUNK_SIZE, COLOR_GRID, COLOR_UNCHECKED};
 use crate::utils::visible_chunk_range;
 use std::collections::HashMap;
 
@@ -39,7 +37,6 @@ const FRAGMENT_SHADER: &str = r#"
     uniform float u_scale;          // Zoom scale
     uniform float u_cellSize;       // Base cell size in pixels
     uniform vec2 u_gridSize;        // Grid dimensions (1000, 1000)
-    uniform vec3 u_colorChecked;
     uniform vec3 u_colorUnchecked;
     uniform vec3 u_colorGrid;
     
@@ -72,28 +69,21 @@ const FRAGMENT_SHADER: &str = r#"
             return;
         }
         
-        // Sample checkbox state texture
-        // Texture is 1000x1000, each pixel stores 8 bits (one byte)
-        // We need to unpack the bit for this cell
-        float cellIndex = cell.y * u_gridSize.x + cell.x;
-        float byteIndex = floor(cellIndex / 8.0);
-        float bitIndex = mod(cellIndex, 8.0);
+        // Sample checkbox state texture directly
+        // Texture is 1000x1000 RGBA, each pixel stores [R, G, B, checked]
+        // Add 0.5 to sample center of texel
+        vec2 texCoord = (cell + 0.5) / u_gridSize;
+        vec4 texSample = texture2D(u_checkboxState, texCoord);
         
-        // Calculate texture coordinates for the byte
-        // Texture is 125000 bytes = 125000 pixels in a 1D texture mapped to 2D
-        // We use a 500x250 texture (125000 pixels)
-        float texX = mod(byteIndex, 500.0) / 500.0;
-        float texY = floor(byteIndex / 500.0) / 250.0;
-        
-        vec4 texSample = texture2D(u_checkboxState, vec2(texX, texY));
-        
-        // Unpack the bit (texSample.r is 0-1, multiply by 255 to get byte value)
-        float byteValue = texSample.r * 255.0;
-        float bitValue = mod(floor(byteValue / pow(2.0, bitIndex)), 2.0);
-        
-        // Color based on checked state
-        vec3 color = bitValue > 0.5 ? u_colorChecked : u_colorUnchecked;
-        gl_FragColor = vec4(color, 1.0);
+        // Alpha channel contains checked state (0.0 = unchecked, 1.0 = checked)
+        // RGB channels contain the user's color
+        if (texSample.a > 0.5) {
+            // Checked - use the color stored in the texture
+            gl_FragColor = vec4(texSample.rgb, 1.0);
+        } else {
+            // Unchecked - use default unchecked color
+            gl_FragColor = vec4(u_colorUnchecked, 1.0);
+        }
     }
 "#;
 
@@ -110,8 +100,6 @@ pub struct WebGLRenderer {
     u_cell_size: WebGlUniformLocation,
     #[allow(dead_code)]
     u_grid_size: WebGlUniformLocation,
-    #[allow(dead_code)]
-    u_color_checked: WebGlUniformLocation,
     #[allow(dead_code)]
     u_color_unchecked: WebGlUniformLocation,
     #[allow(dead_code)]
@@ -168,7 +156,7 @@ impl WebGLRenderer {
         gl.enable_vertex_attrib_array(a_position);
         gl.vertex_attrib_pointer_with_i32(a_position, 2, GL::FLOAT, false, 0, 0);
 
-        // Create state texture (500x250 = 125000 pixels for 125000 bytes)
+        // Create state texture (1000x1000 RGBA for 1M cells with RGB + checked state)
         let state_texture = gl.create_texture().ok_or("Failed to create texture")?;
         gl.bind_texture(GL::TEXTURE_2D, Some(&state_texture));
         gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::NEAREST as i32);
@@ -192,9 +180,6 @@ impl WebGLRenderer {
         let u_grid_size = gl
             .get_uniform_location(&program, "u_gridSize")
             .ok_or("u_gridSize not found")?;
-        let u_color_checked = gl
-            .get_uniform_location(&program, "u_colorChecked")
-            .ok_or("u_colorChecked not found")?;
         let u_color_unchecked = gl
             .get_uniform_location(&program, "u_colorUnchecked")
             .ok_or("u_colorUnchecked not found")?;
@@ -207,10 +192,7 @@ impl WebGLRenderer {
         // Each chunk is CHUNK_SIZE x CHUNK_SIZE, not the full grid
         gl.uniform2f(Some(&u_grid_size), CHUNK_SIZE as f32, CHUNK_SIZE as f32);
 
-        // Parse and set colors
-        let (cr, cg, cb) = parse_hex_color(COLOR_CHECKED);
-        gl.uniform3f(Some(&u_color_checked), cr, cg, cb);
-
+        // Parse and set colors (only unchecked and grid colors needed now)
         let (ur, ug, ub) = parse_hex_color(COLOR_UNCHECKED);
         gl.uniform3f(Some(&u_color_unchecked), ur, ug, ub);
 
@@ -226,7 +208,6 @@ impl WebGLRenderer {
             u_scale,
             u_cell_size,
             u_grid_size,
-            u_color_checked,
             u_color_unchecked,
             u_color_grid,
         })
@@ -307,19 +288,20 @@ impl WebGLRenderer {
         self.gl
             .bind_texture(GL::TEXTURE_2D, Some(&self.state_texture));
 
-        // Convert chunk_data to texture (500x250, LUMINANCE format)
-        // Each byte becomes one pixel's luminance value
+        // Convert chunk_data to texture (1000x1000, RGBA format)
+        // Each cell is 4 bytes: [R, G, B, checked]
+        // RGBA texture maps directly to this format
         unsafe {
             let tex_array = js_sys::Uint8Array::view(chunk_data);
             self.gl
                 .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_array_buffer_view(
                     GL::TEXTURE_2D,
                     0,
-                    GL::LUMINANCE as i32,
-                    500,
-                    250,
+                    GL::RGBA as i32,
+                    CHUNK_SIZE as i32,  // 1000
+                    CHUNK_SIZE as i32,  // 1000
                     0,
-                    GL::LUMINANCE,
+                    GL::RGBA,
                     GL::UNSIGNED_BYTE,
                     Some(&tex_array),
                 )
@@ -354,6 +336,7 @@ impl WebGLRenderer {
         col: u32,
         row: u32,
         is_checked: bool,
+        color: (u8, u8, u8), // RGB color for checked state
         offset_x: f64,
         offset_y: f64,
         scale: f64,
@@ -385,7 +368,12 @@ impl WebGLRenderer {
 
         // Clear with the cell color
         let (r, g, b) = if is_checked {
-            parse_hex_color(COLOR_CHECKED)
+            // Use the user's color for checked state
+            (
+                color.0 as f32 / 255.0,
+                color.1 as f32 / 255.0,
+                color.2 as f32 / 255.0,
+            )
         } else {
             parse_hex_color(COLOR_UNCHECKED)
         };

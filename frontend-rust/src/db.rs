@@ -8,13 +8,15 @@
 //! - Sending reducer calls for checkbox toggles
 
 use crate::constants::CHUNK_DATA_SIZE;
-use crate::state::{AppState, ConnectionStatus};
-use crate::utils::{grid_to_chunk_id, grid_to_local, local_to_bit_offset};
+use crate::state::{AppState, ConnectionStatus, PendingUpdate};
+use crate::utils::{grid_to_chunk_id, grid_to_local};
 use crate::ws_client::{call_reducer, connect, subscribe, SharedClient, SpacetimeClient};
 use leptos::prelude::*;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
+
+use crate::constants::CHUNK_SIZE;
 
 /// CheckboxChunk row structure matching the backend schema
 #[derive(Debug, Clone)]
@@ -67,28 +69,45 @@ impl CheckboxChunk {
     }
 }
 
-/// Get a bit value at the given index
-pub fn get_bit(data: &[u8], bit_index: usize) -> bool {
-    let byte_idx = bit_index / 8;
-    let bit_idx = bit_index % 8;
+/// Get checkbox state at the given cell index
+/// Returns (r, g, b, checked) or None if out of bounds
+pub fn get_checkbox(data: &[u8], cell_index: usize) -> Option<(u8, u8, u8, bool)> {
+    let byte_idx = cell_index * 4;
+    if byte_idx + 3 < data.len() {
+        let r = data[byte_idx];
+        let g = data[byte_idx + 1];
+        let b = data[byte_idx + 2];
+        let checked = data[byte_idx + 3] != 0;
+        Some((r, g, b, checked))
+    } else {
+        None
+    }
+}
+
+/// Set checkbox state at the given cell index
+pub fn set_checkbox(data: &mut [u8], cell_index: usize, r: u8, g: u8, b: u8, checked: bool) {
+    let byte_idx = cell_index * 4;
+    if byte_idx + 3 < data.len() {
+        data[byte_idx] = r;
+        data[byte_idx + 1] = g;
+        data[byte_idx + 2] = b;
+        data[byte_idx + 3] = if checked { 0xFF } else { 0x00 };
+    }
+}
+
+/// Check if a checkbox is checked at the given cell index
+pub fn is_checked(data: &[u8], cell_index: usize) -> bool {
+    let byte_idx = cell_index * 4 + 3; // checked byte is at offset +3
     if byte_idx < data.len() {
-        (data[byte_idx] >> bit_idx) & 1 == 1
+        data[byte_idx] != 0
     } else {
         false
     }
 }
 
-/// Set a bit value at the given index
-pub fn set_bit(data: &mut [u8], bit_index: usize, value: bool) {
-    let byte_idx = bit_index / 8;
-    let bit_idx = bit_index % 8;
-    if byte_idx < data.len() {
-        if value {
-            data[byte_idx] |= 1 << bit_idx;
-        } else {
-            data[byte_idx] &= !(1 << bit_idx);
-        }
-    }
+/// Convert local coordinates to cell offset (for the new format)
+pub fn local_to_cell_offset(local_col: u32, local_row: u32) -> u32 {
+    local_row * CHUNK_SIZE + local_col
 }
 
 // Global client storage - we use thread_local for WASM safety
@@ -243,7 +262,10 @@ pub fn init_connection(state: AppState) {
 pub fn toggle_checkbox(state: AppState, col: u32, row: u32) -> Option<bool> {
     let chunk_id = grid_to_chunk_id(col, row);
     let (local_col, local_row) = grid_to_local(col, row);
-    let bit_offset = local_to_bit_offset(local_col, local_row) as usize;
+    let cell_offset = local_to_cell_offset(local_col, local_row) as usize;
+
+    // Get user color
+    let (r, g, b) = state.user_color.get_untracked();
 
     // Ensure chunk exists locally (create empty chunk if needed)
     state.loaded_chunks.update(|chunks| {
@@ -256,22 +278,22 @@ pub fn toggle_checkbox(state: AppState, col: u32, row: u32) -> Option<bool> {
     let current_value = state.loaded_chunks.with_untracked(|chunks| {
         chunks
             .get(&chunk_id)
-            .map(|data| get_bit(data, bit_offset))
+            .map(|data| is_checked(data, cell_offset))
             .unwrap_or(false)
     });
     let new_value = !current_value;
 
-    // Optimistic update
+    // Optimistic update - set with user's color
     state.loaded_chunks.update(|chunks| {
         if let Some(data) = chunks.get_mut(&chunk_id) {
-            set_bit(data, bit_offset, new_value);
+            set_checkbox(data, cell_offset, r, g, b, new_value);
         }
     });
 
     // Send to server
     if let Some(client) = get_client() {
-        // Encode reducer arguments: (chunk_id: u32, bit_offset: u32, checked: bool)
-        let args = encode_update_checkbox_args(chunk_id, bit_offset as u32, new_value);
+        // Encode reducer arguments: (chunk_id: u32, cell_offset: u32, r: u8, g: u8, b: u8, checked: bool)
+        let args = encode_update_checkbox_args(chunk_id, cell_offset as u32, r, g, b, new_value);
         call_reducer(&client, "update_checkbox", &args);
     }
 
@@ -284,7 +306,10 @@ pub fn toggle_checkbox(state: AppState, col: u32, row: u32) -> Option<bool> {
 pub fn set_checkbox_checked(state: AppState, col: u32, row: u32) -> Option<bool> {
     let chunk_id = grid_to_chunk_id(col, row);
     let (local_col, local_row) = grid_to_local(col, row);
-    let bit_offset = local_to_bit_offset(local_col, local_row) as usize;
+    let cell_offset = local_to_cell_offset(local_col, local_row) as usize;
+
+    // Get user color
+    let (r, g, b) = state.user_color.get_untracked();
 
     // Ensure chunk exists locally (create empty chunk if needed)
     state.loaded_chunks.update(|chunks| {
@@ -297,7 +322,7 @@ pub fn set_checkbox_checked(state: AppState, col: u32, row: u32) -> Option<bool>
     let current_value = state.loaded_chunks.with_untracked(|chunks| {
         chunks
             .get(&chunk_id)
-            .map(|data| get_bit(data, bit_offset))
+            .map(|data| is_checked(data, cell_offset))
             .unwrap_or(false)
     });
 
@@ -306,16 +331,17 @@ pub fn set_checkbox_checked(state: AppState, col: u32, row: u32) -> Option<bool>
         return Some(false); // Already checked, no change
     }
 
-    // Optimistic update
+    // Optimistic update with user's color
     state.loaded_chunks.update(|chunks| {
         if let Some(data) = chunks.get_mut(&chunk_id) {
-            set_bit(data, bit_offset, true);
+            set_checkbox(data, cell_offset, r, g, b, true);
         }
     });
 
     // Queue update for batching instead of sending immediately
+    // PendingUpdate = (chunk_id, cell_offset, r, g, b, checked)
     state.pending_updates.update(|updates| {
-        updates.push((chunk_id, bit_offset as u32, true));
+        updates.push((chunk_id, cell_offset as u32, r, g, b, true));
     });
 
     Some(true) // Changed from unchecked to checked
@@ -343,20 +369,23 @@ pub fn flush_pending_updates(state: AppState) {
 }
 
 /// Encode arguments for batch_update_checkboxes reducer
-/// Format: length-prefixed array of (chunk_id: u32, bit_offset: u32, checked: bool)
-fn encode_batch_update_args(updates: &[(u32, u32, bool)]) -> Vec<u8> {
-    // BSATN encoding for Vec<(u32, u32, bool)>
+/// Format: length-prefixed array of CheckboxUpdate { chunk_id: u32, cell_offset: u32, r: u8, g: u8, b: u8, checked: bool }
+fn encode_batch_update_args(updates: &[PendingUpdate]) -> Vec<u8> {
+    // BSATN encoding for Vec<CheckboxUpdate>
     // Vec is encoded as: length (u32) followed by elements
-    // Each element (tuple) is encoded as: u32 + u32 + bool = 9 bytes
-    let mut buf = Vec::with_capacity(4 + updates.len() * 9);
+    // Each element is encoded as: u32 + u32 + u8 + u8 + u8 + bool = 12 bytes
+    let mut buf = Vec::with_capacity(4 + updates.len() * 12);
 
     // Array length (u32, little-endian)
     buf.extend_from_slice(&(updates.len() as u32).to_le_bytes());
 
-    // Each update
-    for (chunk_id, bit_offset, checked) in updates {
+    // Each update: (chunk_id, cell_offset, r, g, b, checked)
+    for (chunk_id, cell_offset, r, g, b, checked) in updates {
         buf.extend_from_slice(&chunk_id.to_le_bytes());
-        buf.extend_from_slice(&bit_offset.to_le_bytes());
+        buf.extend_from_slice(&cell_offset.to_le_bytes());
+        buf.push(*r);
+        buf.push(*g);
+        buf.push(*b);
         buf.push(if *checked { 1 } else { 0 });
     }
 
@@ -364,16 +393,33 @@ fn encode_batch_update_args(updates: &[(u32, u32, bool)]) -> Vec<u8> {
 }
 
 /// Encode arguments for update_checkbox reducer
-fn encode_update_checkbox_args(chunk_id: u32, bit_offset: u32, checked: bool) -> Vec<u8> {
-    // BSATN encoding: product type with three fields
-    // u32 + u32 + bool
-    let mut buf = Vec::with_capacity(9);
+/// Format: CheckboxUpdate { chunk_id: u32, cell_offset: u32, r: u8, g: u8, b: u8, checked: bool }
+fn encode_update_checkbox_args(
+    chunk_id: u32,
+    cell_offset: u32,
+    r: u8,
+    g: u8,
+    b: u8,
+    checked: bool,
+) -> Vec<u8> {
+    // BSATN encoding: product type with six fields
+    // u32 + u32 + u8 + u8 + u8 + bool = 12 bytes
+    let mut buf = Vec::with_capacity(12);
 
     // chunk_id: u32 (little-endian)
     buf.extend_from_slice(&chunk_id.to_le_bytes());
 
-    // bit_offset: u32 (little-endian)
-    buf.extend_from_slice(&bit_offset.to_le_bytes());
+    // cell_offset: u32 (little-endian)
+    buf.extend_from_slice(&cell_offset.to_le_bytes());
+
+    // r: u8
+    buf.push(r);
+
+    // g: u8
+    buf.push(g);
+
+    // b: u8
+    buf.push(b);
 
     // checked: bool (1 byte)
     buf.push(if checked { 1 } else { 0 });

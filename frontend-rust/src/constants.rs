@@ -9,14 +9,14 @@ pub const CHUNK_SIZE: u32 = 1_000; // 1000x1000 checkboxes per chunk
 pub const CHUNKS_X: u32 = 40; // GRID_WIDTH / CHUNK_SIZE
 pub const CHUNKS_Y: u32 = 25; // GRID_HEIGHT / CHUNK_SIZE
 pub const TOTAL_CHUNKS: u32 = CHUNKS_X * CHUNKS_Y; // 1000
-pub const CHUNK_DATA_SIZE: usize = (CHUNK_SIZE as usize * CHUNK_SIZE as usize) / 8; // 125,000 bytes
+                                                   // 4 bytes per checkbox (R, G, B, checked)
+pub const CHUNK_DATA_SIZE: usize = CHUNK_SIZE as usize * CHUNK_SIZE as usize * 4; // 4,000,000 bytes
 
 // Zoom bounds
 pub const MIN_SCALE: f64 = 0.1;
 pub const MAX_SCALE: f64 = 10.0;
 
 // Colors
-pub const COLOR_CHECKED: &str = "#2ecc71";
 pub const COLOR_UNCHECKED: &str = "#2c3e50";
 pub const COLOR_GRID: &str = "#1a1a2e";
 
@@ -24,3 +24,6 @@ pub const COLOR_GRID: &str = "#1a1a2e";
 pub const DATABASE_NAME: &str = "checkboxes";
 pub const SPACETIMEDB_URI_LOCAL: &str = "ws://127.0.0.1:3000";
 pub const SPACETIMEDB_URI_PROD: &str = "wss://maincloud.spacetimedb.com";
+
+// localStorage key for user color
+pub const USER_COLOR_KEY: &str = "checkbox_user_color";
