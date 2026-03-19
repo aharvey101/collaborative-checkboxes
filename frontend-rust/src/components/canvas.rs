@@ -11,11 +11,12 @@ use crate::db::{
     flush_pending_updates, set_checkbox_checked, subscribe_to_chunks, toggle_checkbox,
 };
 use crate::state::AppState;
-use crate::utils::{canvas_to_grid, visible_chunk_ids};
+use crate::utils::{canvas_to_grid, visible_chunks};
 use crate::webgl::WebGLRenderer;
 
 /// Bresenham's line algorithm - returns all grid cells between two points (inclusive)
-fn line_cells(x0: u32, y0: u32, x1: u32, y1: u32) -> Vec<(u32, u32)> {
+/// Uses signed coordinates for infinite grid
+fn line_cells(x0: i32, y0: i32, x1: i32, y1: i32) -> Vec<(i32, i32)> {
     let mut cells = Vec::new();
 
     let dx = (x1 as i64 - x0 as i64).abs();
@@ -28,7 +29,7 @@ fn line_cells(x0: u32, y0: u32, x1: u32, y1: u32) -> Vec<(u32, u32)> {
     let mut y = y0 as i64;
 
     loop {
-        cells.push((x as u32, y as u32));
+        cells.push((x as i32, y as i32));
 
         if x == x1 as i64 && y == y1 as i64 {
             break;
@@ -147,7 +148,7 @@ pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
             let width = canvas.width() as f64;
             let height = canvas.height() as f64;
 
-            let visible = visible_chunk_ids(offset_x, offset_y, scale, width, height);
+            let visible = visible_chunks(offset_x, offset_y, scale, width, height);
             subscribe_to_chunks(state, visible);
         }
     });
@@ -194,16 +195,15 @@ pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
         let offset_y = state.offset_y.get_untracked();
         let scale = state.scale.get_untracked();
 
-        if let Some((col, row)) = canvas_to_grid(x, y, offset_x, offset_y, scale) {
-            // Toggle and get new value
-            if let Some(new_value) = toggle_checkbox(state, col, row) {
-                // Immediate visual feedback - render just this cell
-                if let Some(ref r) = *renderer_for_click.borrow() {
-                    let user_color = state.user_color.get_untracked();
-                    r.render_cell_immediate(
-                        &canvas, col, row, new_value, user_color, offset_x, offset_y, scale,
-                    );
-                }
+        let (col, row) = canvas_to_grid(x, y, offset_x, offset_y, scale);
+        // Toggle and get new value
+        if let Some(new_value) = toggle_checkbox(state, col, row) {
+            // Immediate visual feedback - render just this cell
+            if let Some(ref r) = *renderer_for_click.borrow() {
+                let user_color = state.user_color.get_untracked();
+                r.render_cell_immediate(
+                    &canvas, col, row, new_value, user_color, offset_x, offset_y, scale,
+                );
             }
         }
     };
@@ -233,19 +233,18 @@ pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
                 let offset_y = state.offset_y.get_untracked();
                 let scale = state.scale.get_untracked();
 
-                if let Some((col, row)) = canvas_to_grid(x, y, offset_x, offset_y, scale) {
-                    // Track the starting position for line interpolation
-                    state.last_draw_col.set(Some(col));
-                    state.last_draw_row.set(Some(row));
+                let (col, row) = canvas_to_grid(x, y, offset_x, offset_y, scale);
+                // Track the starting position for line interpolation
+                state.last_draw_col.set(Some(col));
+                state.last_draw_row.set(Some(row));
 
-                    if let Some(true) = set_checkbox_checked(state, col, row) {
-                        // Render immediately
-                        if let Some(ref r) = *renderer_for_draw.borrow() {
-                            let user_color = state.user_color.get_untracked();
-                            r.render_cell_immediate(
-                                &canvas, col, row, true, user_color, offset_x, offset_y, scale,
-                            );
-                        }
+                if let Some(true) = set_checkbox_checked(state, col, row) {
+                    // Render immediately
+                    if let Some(ref r) = *renderer_for_draw.borrow() {
+                        let user_color = state.user_color.get_untracked();
+                        r.render_cell_immediate(
+                            &canvas, col, row, true, user_color, offset_x, offset_y, scale,
+                        );
                     }
                 }
             }
@@ -275,34 +274,33 @@ pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
             let offset_y = state.offset_y.get_untracked();
             let scale = state.scale.get_untracked();
 
-            if let Some((col, row)) = canvas_to_grid(x, y, offset_x, offset_y, scale) {
-                // Get last position for line interpolation
-                let last_col = state.last_draw_col.get_untracked();
-                let last_row = state.last_draw_row.get_untracked();
+            let (col, row) = canvas_to_grid(x, y, offset_x, offset_y, scale);
+            // Get last position for line interpolation
+            let last_col = state.last_draw_col.get_untracked();
+            let last_row = state.last_draw_row.get_untracked();
 
-                // Get all cells along the line from last position to current
-                let cells = match (last_col, last_row) {
-                    (Some(lc), Some(lr)) if lc != col || lr != row => line_cells(lc, lr, col, row),
-                    _ => vec![(col, row)],
-                };
+            // Get all cells along the line from last position to current
+            let cells = match (last_col, last_row) {
+                (Some(lc), Some(lr)) if lc != col || lr != row => line_cells(lc, lr, col, row),
+                _ => vec![(col, row)],
+            };
 
-                // Fill all cells along the line
-                for (c, r) in cells {
-                    if let Some(true) = set_checkbox_checked(state, c, r) {
-                        // Render immediately
-                        if let Some(ref renderer) = *renderer_for_move.borrow() {
-                            let user_color = state.user_color.get_untracked();
-                            renderer.render_cell_immediate(
-                                &canvas, c, r, true, user_color, offset_x, offset_y, scale,
-                            );
-                        }
+            // Fill all cells along the line
+            for (c, r) in cells {
+                if let Some(true) = set_checkbox_checked(state, c, r) {
+                    // Render immediately
+                    if let Some(ref renderer) = *renderer_for_move.borrow() {
+                        let user_color = state.user_color.get_untracked();
+                        renderer.render_cell_immediate(
+                            &canvas, c, r, true, user_color, offset_x, offset_y, scale,
+                        );
                     }
                 }
-
-                // Update last position
-                state.last_draw_col.set(Some(col));
-                state.last_draw_row.set(Some(row));
             }
+
+            // Update last position
+            state.last_draw_col.set(Some(col));
+            state.last_draw_row.set(Some(row));
         }
     };
 
