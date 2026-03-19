@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::bookmark::parse_bookmark;
+use crate::bookmark::{load_viewport, parse_bookmark, save_viewport};
 use crate::components::{CheckboxCanvas, Header};
 use crate::constants::CELL_SIZE;
 use crate::db::init_connection;
@@ -18,8 +18,8 @@ pub fn App() -> impl IntoView {
             if let Ok(search) = window.location().search() {
                 let bookmark = parse_bookmark(&search);
 
-                // If we have coordinates, calculate offset to center that position
-                if bookmark.x != 0.0 || bookmark.y != 0.0 {
+                // If URL has coordinates, use those (for shared links)
+                if bookmark.x != 0.0 || bookmark.y != 0.0 || bookmark.zoom != 1.0 {
                     // Get canvas size (approximate, will be corrected on resize)
                     let canvas_w = window
                         .inner_width()
@@ -52,12 +52,34 @@ pub fn App() -> impl IntoView {
                         )
                         .into(),
                     );
+                } else if let Some((offset_x, offset_y, scale)) = load_viewport() {
+                    // No URL params - restore from localStorage
+                    state.offset_x.set(offset_x);
+                    state.offset_y.set(offset_y);
+                    state.scale.set(scale);
+
+                    web_sys::console::log_1(
+                        &format!(
+                            "Restored viewport from localStorage: offset=({}, {}), scale={}",
+                            offset_x, offset_y, scale
+                        )
+                        .into(),
+                    );
                 }
             }
         }
 
         // Initialize SpacetimeDB connection
         init_connection(state);
+    });
+
+    // Save viewport to localStorage when it changes (debounced via effect)
+    Effect::new(move |_| {
+        let offset_x = state.offset_x.get();
+        let offset_y = state.offset_y.get();
+        let scale = state.scale.get();
+
+        save_viewport(offset_x, offset_y, scale);
     });
 
     view! {
