@@ -63,6 +63,12 @@ pub struct AppState {
 
     // User's color (RGB)
     pub user_color: RwSignal<(u8, u8, u8)>,
+
+    // Touch state for mobile
+    pub touch_count: RwSignal<u32>,         // Number of active touches
+    pub last_touch_distance: RwSignal<f64>, // For pinch zoom
+    pub last_touch_midpoint: RwSignal<(f64, f64)>, // For two-finger pan
+    pub is_pinching: RwSignal<bool>,        // Two-finger gesture active
 }
 
 impl AppState {
@@ -89,6 +95,10 @@ impl AppState {
             skip_next_render: RwSignal::new(false),
             render_version: RwSignal::new(0),
             user_color: RwSignal::new(user_color),
+            touch_count: RwSignal::new(0),
+            last_touch_distance: RwSignal::new(0.0),
+            last_touch_midpoint: RwSignal::new((0.0, 0.0)),
+            is_pinching: RwSignal::new(false),
         }
     }
 }
