@@ -76,7 +76,7 @@ pub fn Header(state: AppState) -> impl IntoView {
 
     view! {
         <div class="header">
-            <h1>"1 Billion Checkboxes"</h1>
+            <h1>"Infinite Checkboxes"</h1>
             <div class=status_class>{status_text}</div>
             <div class="stats">{stats_text}</div>
             <button class="copy-link-btn" on:click=copy_link>"Copy Link"</button>
