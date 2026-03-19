@@ -199,8 +199,9 @@ pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
             if let Some(new_value) = toggle_checkbox(state, col, row) {
                 // Immediate visual feedback - render just this cell
                 if let Some(ref r) = *renderer_for_click.borrow() {
+                    let user_color = state.user_color.get_untracked();
                     r.render_cell_immediate(
-                        &canvas, col, row, new_value, offset_x, offset_y, scale,
+                        &canvas, col, row, new_value, user_color, offset_x, offset_y, scale,
                     );
                 }
             }
@@ -240,8 +241,9 @@ pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
                     if let Some(true) = set_checkbox_checked(state, col, row) {
                         // Render immediately
                         if let Some(ref r) = *renderer_for_draw.borrow() {
+                            let user_color = state.user_color.get_untracked();
                             r.render_cell_immediate(
-                                &canvas, col, row, true, offset_x, offset_y, scale,
+                                &canvas, col, row, true, user_color, offset_x, offset_y, scale,
                             );
                         }
                     }
@@ -289,8 +291,9 @@ pub fn CheckboxCanvas(state: AppState) -> impl IntoView {
                     if let Some(true) = set_checkbox_checked(state, c, r) {
                         // Render immediately
                         if let Some(ref renderer) = *renderer_for_move.borrow() {
+                            let user_color = state.user_color.get_untracked();
                             renderer.render_cell_immediate(
-                                &canvas, c, r, true, offset_x, offset_y, scale,
+                                &canvas, c, r, true, user_color, offset_x, offset_y, scale,
                             );
                         }
                     }
