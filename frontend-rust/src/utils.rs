@@ -1,34 +1,5 @@
 use crate::constants::{CELL_SIZE, CHUNKS_X, CHUNKS_Y, CHUNK_SIZE, GRID_HEIGHT, GRID_WIDTH};
 
-/// Get bit value at given index
-pub fn get_bit(data: &[u8], bit_index: u32) -> bool {
-    let byte_idx = (bit_index / 8) as usize;
-    let bit_idx = bit_index % 8;
-    if byte_idx < data.len() {
-        (data[byte_idx] >> bit_idx) & 1 == 1
-    } else {
-        false
-    }
-}
-
-/// Set bit value at given index
-pub fn set_bit(data: &mut [u8], bit_index: u32, value: bool) {
-    let byte_idx = (bit_index / 8) as usize;
-    let bit_idx = bit_index % 8;
-    if byte_idx < data.len() {
-        if value {
-            data[byte_idx] |= 1 << bit_idx;
-        } else {
-            data[byte_idx] &= !(1 << bit_idx);
-        }
-    }
-}
-
-/// Count total checked bits
-pub fn count_bits(data: &[u8]) -> u32 {
-    data.iter().map(|byte| byte.count_ones()).sum()
-}
-
 /// Convert canvas coordinates to grid column/row
 /// Returns None if outside grid bounds
 pub fn canvas_to_grid(
@@ -59,11 +30,6 @@ pub fn grid_to_chunk_id(col: u32, row: u32) -> u32 {
 /// Calculate local coordinates within a chunk
 pub fn grid_to_local(col: u32, row: u32) -> (u32, u32) {
     (col % CHUNK_SIZE, row % CHUNK_SIZE)
-}
-
-/// Calculate bit offset within a chunk's data
-pub fn local_to_bit_offset(local_col: u32, local_row: u32) -> u32 {
-    local_row * CHUNK_SIZE + local_col
 }
 
 /// Calculate visible chunk range with buffer
