@@ -21,5 +21,6 @@ pub const DATABASE_NAME: &str = "checkboxes";
 pub const SPACETIMEDB_URI_LOCAL: &str = "ws://127.0.0.1:3000";
 pub const SPACETIMEDB_URI_PROD: &str = "wss://maincloud.spacetimedb.com";
 
-// localStorage key for user color
+// localStorage keys
 pub const USER_COLOR_KEY: &str = "checkbox_user_color";
+pub const VIEWPORT_KEY: &str = "checkbox_viewport";

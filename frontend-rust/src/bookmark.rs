@@ -4,6 +4,8 @@
 //! - x, y: World coordinates (can be negative for infinite grid)
 //! - z: Zoom level (scale factor)
 
+use crate::constants::VIEWPORT_KEY;
+
 /// Parsed bookmark from URL
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bookmark {
@@ -59,6 +61,35 @@ pub fn parse_bookmark(query: &str) -> Bookmark {
 /// Generate bookmark URL query string from position
 pub fn generate_bookmark(x: f64, y: f64, zoom: f64) -> String {
     format!("x={:.0}&y={:.0}&z={:.2}", x, y, zoom)
+}
+
+/// Save viewport position to localStorage
+pub fn save_viewport(offset_x: f64, offset_y: f64, scale: f64) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            let value = format!("{},{},{}", offset_x, offset_y, scale);
+            let _ = storage.set_item(VIEWPORT_KEY, &value);
+        }
+    }
+}
+
+/// Load viewport position from localStorage
+/// Returns (offset_x, offset_y, scale) or None if not saved
+pub fn load_viewport() -> Option<(f64, f64, f64)> {
+    let window = web_sys::window()?;
+    let storage = window.local_storage().ok()??;
+    let value = storage.get_item(VIEWPORT_KEY).ok()??;
+
+    let parts: Vec<&str> = value.split(',').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+
+    let offset_x = parts[0].parse().ok()?;
+    let offset_y = parts[1].parse().ok()?;
+    let scale = parts[2].parse().ok()?;
+
+    Some((offset_x, offset_y, scale))
 }
 
 #[cfg(test)]
