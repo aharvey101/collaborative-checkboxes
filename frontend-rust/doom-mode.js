@@ -12,86 +12,98 @@ window.DoomMode = (function() {
     const DOOM_WIDTH = 640;
     const DOOM_HEIGHT = 400;
 
-    // Bayer 4x4 dither matrix for converting grayscale to binary
-    const BAYER_MATRIX = [
-        [0, 8, 2, 10],
-        [12, 4, 14, 6],
-        [3, 11, 1, 9],
-        [15, 7, 13, 5]
-    ];
-
-    // Convert RGBA image data to dithered binary using Bayer 4x4
-    function ditherToBinary(imageData) {
+    // Extract RGB colors from image data
+    function extractColors(imageData) {
         const width = imageData.width;
         const height = imageData.height;
-        const binary = new Uint8Array(width * height);
+        const colors = new Uint8Array(width * height * 4); // r, g, b, brightness
 
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const idx = y * width + x;
-                const pixelIdx = idx * 4;
+        for (let i = 0; i < width * height; i++) {
+            const pixelIdx = i * 4;
+            const r = imageData.data[pixelIdx];
+            const g = imageData.data[pixelIdx + 1];
+            const b = imageData.data[pixelIdx + 2];
 
-                // Convert to grayscale (using simple average)
-                const r = imageData.data[pixelIdx];
-                const g = imageData.data[pixelIdx + 1];
-                const b = imageData.data[pixelIdx + 2];
-                const gray = (r + g + b) / 3;
+            // Calculate brightness for checked state
+            const brightness = (r + g + b) / 3;
 
-                // Apply Bayer dithering
-                const threshold = (BAYER_MATRIX[y % 4][x % 4] / 16.0) * 255;
-                binary[idx] = gray > threshold ? 1 : 0;
-            }
+            colors[pixelIdx] = r;
+            colors[pixelIdx + 1] = g;
+            colors[pixelIdx + 2] = b;
+            colors[pixelIdx + 3] = brightness > 64 ? 1 : 0; // Use brightness threshold for checked
         }
 
-        return binary;
+        return colors;
     }
 
-    // Calculate delta between two binary frames
+    // Calculate delta between two color frames
     function calculateDelta(newFrame, oldFrame) {
         const indices = [];
-        const values = [];
+        const colors = []; // Will contain [r, g, b, checked] for each changed pixel
 
         if (!oldFrame) {
             // First frame - return all pixels
-            for (let i = 0; i < newFrame.length; i++) {
+            for (let i = 0; i < newFrame.length / 4; i++) {
                 indices.push(i);
-                values.push(newFrame[i]);
+                colors.push([
+                    newFrame[i * 4],     // r
+                    newFrame[i * 4 + 1], // g
+                    newFrame[i * 4 + 2], // b
+                    newFrame[i * 4 + 3]  // checked
+                ]);
             }
         } else {
             // Find changed pixels
-            for (let i = 0; i < newFrame.length; i++) {
-                if (newFrame[i] !== oldFrame[i]) {
+            for (let i = 0; i < newFrame.length / 4; i++) {
+                const idx = i * 4;
+                if (newFrame[idx] !== oldFrame[idx] ||
+                    newFrame[idx + 1] !== oldFrame[idx + 1] ||
+                    newFrame[idx + 2] !== oldFrame[idx + 2] ||
+                    newFrame[idx + 3] !== oldFrame[idx + 3]) {
                     indices.push(i);
-                    values.push(newFrame[i]);
+                    colors.push([
+                        newFrame[idx],     // r
+                        newFrame[idx + 1], // g
+                        newFrame[idx + 2], // b
+                        newFrame[idx + 3]  // checked
+                    ]);
                 }
             }
         }
 
-        return { indices, values };
+        return { indices, colors };
     }
 
     function handleFrame(imageData) {
         if (!currentCallback) return;
 
-        // Convert to binary using dithering
-        const binary = ditherToBinary(imageData);
+        // Extract RGB colors from the frame
+        const colorData = extractColors(imageData);
 
         // Calculate delta
-        const delta = calculateDelta(binary, previousFrame);
+        const delta = calculateDelta(colorData, previousFrame);
 
         // Store current frame for next delta
-        previousFrame = binary;
+        previousFrame = colorData;
 
         // Convert to JS arrays
         const indices = new Uint32Array(delta.indices);
-        const values = new Uint8Array(delta.values);
 
-        // Call the Rust callback with delta data
-        // Parameters: indices, values, width, height, offset_x, offset_y
+        // Pack colors into a single array: [r, g, b, checked, r, g, b, checked, ...]
+        const colorData = new Uint8Array(delta.colors.length * 4);
+        for (let i = 0; i < delta.colors.length; i++) {
+            colorData[i * 4] = delta.colors[i][0];     // r
+            colorData[i * 4 + 1] = delta.colors[i][1]; // g
+            colorData[i * 4 + 2] = delta.colors[i][2]; // b
+            colorData[i * 4 + 3] = delta.colors[i][3]; // checked
+        }
+
+        // Call the Rust callback with delta data including colors
+        // Parameters: indices, colorData, width, height, offset_x, offset_y
         const CHUNK_OFFSET_X = 5000;
         const CHUNK_OFFSET_Y = 5000;
 
-        currentCallback(indices, values, DOOM_WIDTH, DOOM_HEIGHT, CHUNK_OFFSET_X, CHUNK_OFFSET_Y);
+        currentCallback(indices, colorData, DOOM_WIDTH, DOOM_HEIGHT, CHUNK_OFFSET_X, CHUNK_OFFSET_Y);
     }
 
     return {
