@@ -4,9 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Infinite Checkboxes</title>
+    <!-- Doom WASM (jacobenget/doom.wasm) -->
     <link data-trunk rel="rust" data-bin="checkbox-frontend" data-wasm-opt="z" />
+    <link data-trunk rel="copy-file" href="doom.wasm" />
+    <link data-trunk rel="copy-file" href="doom-jacobenget.js" />
+    <link data-trunk rel="copy-file" href="doom-mode.js" />
+    <script src="doom-jacobenget.js"></script>
+    <script src="doom-mode.js"></script>
 </head>
 <body>
     <div id="app"></div>
+    <!-- Doom container (will be created by doom-mode.js if needed) -->
 </body>
 </html>

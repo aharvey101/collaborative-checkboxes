@@ -1,5 +1,6 @@
 use crate::bookmark::generate_bookmark;
 use crate::constants::CELL_SIZE;
+use crate::doom;
 use crate::state::AppState;
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -14,11 +15,45 @@ pub fn Header(state: AppState) -> impl IntoView {
         format!("Zoom: {:.1}x | Shift+drag to pan, scroll to zoom", scale)
     };
 
+    // Doom mode state
+    let (doom_running, set_doom_running) = signal(false);
+
     // Go home button handler - reset to origin (0,0)
     let go_home = move |_| {
         state.offset_x.set(0.0);
         state.offset_y.set(0.0);
         state.scale.set(1.0);
+    };
+
+    // Go to Doom location
+    let go_to_doom = move |_| {
+        doom::go_to_doom_location(state);
+    };
+
+    // Toggle Doom mode
+    let toggle_doom = move |_| {
+        if doom_running.get() {
+            doom::stop_doom_mode();
+            set_doom_running.set(false);
+            state.status_message.set("Doom stopped".to_string());
+        } else {
+            // Start Doom asynchronously
+            let state_clone = state;
+            wasm_bindgen_futures::spawn_local(async move {
+                match doom::start_doom_mode(state_clone).await {
+                    Ok(()) => {
+                        set_doom_running.set(true);
+                        state_clone.status_message.set("Doom running!".to_string());
+                        // Navigate to Doom location
+                        doom::go_to_doom_location(state_clone);
+                    }
+                    Err(e) => {
+                        web_sys::console::error_1(&format!("Failed to start Doom: {}", e).into());
+                        state_clone.status_message.set(format!("Error: {}", e));
+                    }
+                }
+            });
+        }
     };
 
     // Copy link button handler
@@ -81,12 +116,33 @@ pub fn Header(state: AppState) -> impl IntoView {
         }
     };
 
+    // Doom button text
+    let doom_btn_text = move || {
+        if doom_running.get() {
+            "Stop Doom"
+        } else {
+            "Play Doom"
+        }
+    };
+
+    // Focus Doom controls (call JS function)
+    let focus_doom = move |_| {
+        if doom_running.get() {
+            doom::toggle_doom_controls();
+        }
+    };
+
     view! {
         <div class="header">
             <h1>"Infinite Checkboxes"</h1>
             <div class=status_class>{status_text}</div>
             <div class="stats">{stats_text}</div>
             <button class="home-btn" on:click=go_home>"Go Home"</button>
+            <button class="doom-location-btn" on:click=go_to_doom>"Go to Doom"</button>
+            <button class="doom-btn" on:click=toggle_doom>{doom_btn_text}</button>
+            {move || doom_running.get().then(|| view! {
+                <button class="doom-focus-btn" on:click=focus_doom>"Focus Doom"</button>
+            })}
             <button class="copy-link-btn" on:click=copy_link>"Copy Link"</button>
         </div>
     }
