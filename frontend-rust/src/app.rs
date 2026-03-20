@@ -98,9 +98,10 @@ pub fn App() -> impl IntoView {
                         }
                         WorkerToMain::ChunkInserted { chunk_id, state: chunk_state, version } => {
                             web_sys::console::log_1(&format!("Chunk {} inserted, version {}", chunk_id, version).into());
-                            // Ignore doom chunks - they're rendered optimistically and SpacetimeDB
-                            // round-trips would overwrite our local frames with stale data.
-                            if !crate::doom::is_doom_chunk(chunk_id) {
+                            // Only ignore doom chunk updates when WE are running Doom locally,
+                            // to prevent server round-trips from overwriting optimistic frames.
+                            // Other users' Doom frames should still be visible.
+                            if !crate::doom::is_doom_chunk(chunk_id) || !crate::doom::is_doom_running() {
                                 state.loaded_chunks.update(|chunks| {
                                     chunks.insert(chunk_id, chunk_state);
                                 });
@@ -115,8 +116,8 @@ pub fn App() -> impl IntoView {
                         }
                         WorkerToMain::ChunkUpdated { chunk_id, state: chunk_state, version } => {
                             web_sys::console::log_1(&format!("Chunk {} updated, version {}", chunk_id, version).into());
-                            // Ignore doom chunks - optimistic frames are authoritative locally.
-                            if !crate::doom::is_doom_chunk(chunk_id) {
+                            // Only ignore doom chunk updates when WE are running Doom locally.
+                            if !crate::doom::is_doom_chunk(chunk_id) || !crate::doom::is_doom_running() {
                                 state.loaded_chunks.update(|chunks| {
                                     chunks.insert(chunk_id, chunk_state);
                                 });
