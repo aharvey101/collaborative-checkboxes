@@ -6,6 +6,10 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "worker"
+path = "src/worker/mod.rs"
+
 [dependencies]
 leptos = { version = "0.7", features = ["csr"] }
 
@@ -40,6 +44,7 @@ web-sys = { version = "0.3", features = [
     "ErrorEvent",
     "Blob",
     "Storage",
+    "DedicatedWorkerGlobalScope",
     # WebGL
     "WebGlRenderingContext",
     "WebGlProgram",
