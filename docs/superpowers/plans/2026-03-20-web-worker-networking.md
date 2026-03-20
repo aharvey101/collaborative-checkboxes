@@ -402,7 +402,7 @@ Create `frontend-rust/src/worker_bridge.rs`:
 //!
 //! Provides interface for spawning worker and sending/receiving messages
 
-use crate::worker::protocol::{MainToWorker, WorkerToMain};
+use crate::worker_protocol::{MainToWorker, WorkerToMain};
 use leptos::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -492,40 +492,19 @@ pub fn terminate_worker() {
 }
 ```
 
-- [ ] **Step 2: Add worker_bridge to lib.rs**
+- [ ] **Step 2: Add worker_bridge and protocol to lib.rs**
 
 Add to `frontend-rust/src/lib.rs` after other module declarations:
 
 ```rust
 pub mod worker_bridge;
-```
 
-Also re-export protocol for worker_bridge:
-```rust
-pub mod worker {
-    pub mod protocol;
-}
-```
-
-Then copy the protocol.rs to be accessible:
-Actually, update the worker_bridge import at top of file:
-
-```rust
-use crate::worker::protocol::{MainToWorker, WorkerToMain};
-```
-
-But we need protocol accessible from lib.rs context. Update `frontend-rust/src/lib.rs` to add:
-
-```rust
+// Re-export worker protocol for use by worker_bridge
 #[path = "worker/protocol.rs"]
 pub mod worker_protocol;
 ```
 
-Then update worker_bridge.rs imports:
-
-```rust
-use crate::worker_protocol::{MainToWorker, WorkerToMain};
-```
+This makes the protocol types available to both the worker binary and the main app.
 
 - [ ] **Step 3: Build to verify no compile errors**
 
@@ -562,7 +541,7 @@ Add to web-sys features in `frontend-rust/Cargo.toml`:
 "WorkerGlobalScope",
 ```
 
-- [ ] **Step 2: Create worker/client.rs with SpacetimeDB client**
+- [ ] **Step 2: Create worker/client.rs with SpacetimeDB client (Part 1: Struct and basic methods)**
 
 Create `frontend-rust/src/worker/client.rs`:
 
@@ -570,6 +549,9 @@ Create `frontend-rust/src/worker/client.rs`:
 //! Worker-side SpacetimeDB client
 //!
 //! Handles WebSocket connection, BSATN encoding, and reconnection logic
+//!
+//! Note: Helper functions like `send_to_main_thread`, `handle_ws_message`, and
+//! `handle_ws_close` are defined later in this file.
 
 use super::protocol::{MainToWorker, WorkerToMain};
 use std::cell::RefCell;
@@ -953,7 +935,18 @@ git commit -m "feat(worker): implement SpacetimeDB client in worker
 
 Find the `App` component in `frontend-rust/src/app.rs` and add worker initialization.
 
-Look for the component function and add after state initialization:
+First, check that `ConnectionStatus` enum exists in `frontend-rust/src/state.rs`. If not, add it:
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionStatus {
+    Connecting,
+    Connected,
+    Error,
+}
+```
+
+Then look for the component function and add after state initialization:
 
 ```rust
 // Initialize worker
@@ -1077,14 +1070,15 @@ pub fn toggle_checkbox(state: AppState, col: i32, row: i32) -> Option<bool> {
     });
     let new_value = !current_value;
 
-    // Optimistic update
+    // Optimistic update - immediate UI feedback
+    // (Server will reconcile when update comes back)
     state.loaded_chunks.update(|chunks| {
         if let Some(data) = chunks.get_mut(&chunk_id) {
             set_checkbox(data, cell_offset, r, g, b, new_value);
         }
     });
 
-    // Send to worker
+    // Send to worker (non-blocking - worker handles connection state)
     send_to_worker(MainToWorker::UpdateCheckbox {
         chunk_id,
         cell_offset: cell_offset as u32,
@@ -1184,6 +1178,10 @@ fn handle_ws_message(event: web_sys::MessageEvent) {
 }
 
 /// Parse SpacetimeDB binary message
+///
+/// Note: Message type constants are from SpacetimeDB v2.0 protocol.
+/// Reference: https://spacetimedb.com/docs/sdks/rust/quickstart
+/// If these values don't work, check SpacetimeDB client logs for actual message types.
 fn parse_spacetimedb_message(bytes: &[u8]) {
     if bytes.is_empty() {
         return;
@@ -1352,9 +1350,25 @@ test('Doom performance with worker (compare to baseline)', async ({ page }) => {
 });
 ```
 
-- [ ] **Step 2: Create worker-specific performance test**
+- [ ] **Step 2: Add test helper and create worker performance test**
 
-Create `tests/worker-performance.spec.ts`:
+First, expose worker bridge for testing. Add to `frontend-rust/src/app.rs` after worker initialization:
+
+```rust
+// Expose for testing
+#[wasm_bindgen]
+pub fn test_send_batch_update(updates_js: JsValue) {
+    use crate::worker_bridge::send_to_worker;
+    use crate::worker_protocol::MainToWorker;
+
+    let updates: Vec<(i64, u32, u8, u8, u8, bool)> = serde_wasm_bindgen::from_value(updates_js)
+        .expect("Failed to parse updates");
+
+    send_to_worker(MainToWorker::BatchUpdate { updates });
+}
+```
+
+Then create `tests/worker-performance.spec.ts`:
 
 ```typescript
 import { test, expect } from '@playwright/test';
@@ -1377,7 +1391,7 @@ test('Worker main thread blocking test', async ({ page }) => {
             const start = performance.now();
 
             // Send to worker (this should be fast)
-            (window as any).testSendBatchUpdate(updates);
+            (window as any).test_send_batch_update(updates);
 
             const end = performance.now();
             resolve(end - start);
@@ -1607,15 +1621,26 @@ EOF
 
 - [ ] **Step 5: After PR approval, merge to main**
 
+Note: You're in a git worktree at `/Users/alexander/development/checkboxes-clean/.worktrees/web-worker`.
+
 ```bash
+# Merge PR (from any location)
 gh pr merge --squash
+
+# Switch back to main repo (not worktree)
+cd /Users/alexander/development/checkboxes-clean
 git checkout main
 git pull origin main
+
+# Clean up worktree
+git worktree remove .worktrees/web-worker
 ```
 
 - [ ] **Step 6: Tag release**
 
 ```bash
+# From main repo directory
+cd /Users/alexander/development/checkboxes-clean
 git tag -a v1.0.0-worker -m "Web worker networking - 3x Doom FPS improvement"
 git push origin v1.0.0-worker
 ```
