@@ -133,10 +133,10 @@ pub async fn start_doom_mode(state: AppState) -> Result<(), String> {
         Ok(_) => {
             web_sys::console::log_1(&"Doom initialized, starting frame capture...".into());
 
-            // Create the frame callback for delta updates
+            // Create the frame callback for delta updates with RGB colors
             let callback = Closure::wrap(Box::new(
-                move |indices: js_sys::Uint32Array, values: js_sys::Uint8Array, width: u32, height: u32, offset_x: i32, offset_y: i32| {
-                    handle_doom_frame_delta(indices, values, width, height, offset_x, offset_y);
+                move |indices: js_sys::Uint32Array, color_data: js_sys::Uint8Array, width: u32, height: u32, offset_x: i32, offset_y: i32| {
+                    handle_doom_frame_delta(indices, color_data, width, height, offset_x, offset_y);
                 },
             )
                 as Box<dyn FnMut(js_sys::Uint32Array, js_sys::Uint8Array, u32, u32, i32, i32)>);
@@ -204,17 +204,17 @@ pub fn enable_doom_controls() {
     }
 }
 
-/// Handle a delta frame from Doom - only changed pixels
+/// Handle a delta frame from Doom - only changed pixels with full RGB colors
 fn handle_doom_frame_delta(
     indices: js_sys::Uint32Array,
-    values: js_sys::Uint8Array,
+    color_data: js_sys::Uint8Array,
     width: u32,
     _height: u32,
     offset_x: i32,
     offset_y: i32,
 ) {
     let t0 = js_sys::Date::now();
-    
+
     // Get state
     let state = DOOM_STATE.with(|s| s.borrow().clone());
     let Some(state) = state else {
@@ -223,35 +223,39 @@ fn handle_doom_frame_delta(
 
     // Convert delta to updates
     let indices_vec: Vec<u32> = indices.to_vec();
-    let values_vec: Vec<u8> = values.to_vec();
-    
-    let t1 = js_sys::Date::now();
-    
+    let color_vec: Vec<u8> = color_data.to_vec();
+
+    let _t1 = js_sys::Date::now();
+
     let mut updates = Vec::with_capacity(indices_vec.len());
-    let (r, g, b) = (0, 255, 0); // Doom green
-    
+
     for (i, &pixel_idx) in indices_vec.iter().enumerate() {
-        let checked = values_vec.get(i).copied().unwrap_or(0) != 0;
-        
+        // Unpack color data: [r, g, b, checked, r, g, b, checked, ...]
+        let color_idx = i * 4;
+        let r = color_vec.get(color_idx).copied().unwrap_or(0);
+        let g = color_vec.get(color_idx + 1).copied().unwrap_or(0);
+        let b = color_vec.get(color_idx + 2).copied().unwrap_or(0);
+        let is_checked = color_vec.get(color_idx + 3).copied().unwrap_or(0) != 0;
+
         // Convert linear index to x,y
         let x = (pixel_idx % width) as i32;
         let y = (pixel_idx / width) as i32;
-        
+
         // Calculate global grid position
         let grid_x = offset_x + x;
         let grid_y = offset_y + y;
-        
+
         // Calculate chunk coordinates
         let chunk_x = grid_x.div_euclid(CHUNK_SIZE as i32);
         let chunk_y = grid_y.div_euclid(CHUNK_SIZE as i32);
         let chunk_id = chunk_coords_to_id(chunk_x, chunk_y);
-        
+
         // Calculate local position within chunk
         let local_x = grid_x.rem_euclid(CHUNK_SIZE as i32) as u32;
         let local_y = grid_y.rem_euclid(CHUNK_SIZE as i32) as u32;
         let cell_offset = local_y * CHUNK_SIZE + local_x;
-        
-        updates.push((chunk_id, cell_offset, r, g, b, checked));
+
+        updates.push((chunk_id, cell_offset, r, g, b, is_checked));
     }
 
     let t2 = js_sys::Date::now();
