@@ -53,7 +53,9 @@ fn handle_main_message(event: web_sys::MessageEvent) {
         }
         MainToWorker::Subscribe { chunk_ids } => {
             web_sys::console::log_1(&format!("Subscribe to {} chunks", chunk_ids.len()).into());
-            // TODO: Implement subscription
+            with_client(|client| {
+                client.subscribe();
+            });
         }
         MainToWorker::UpdateCheckbox {
             chunk_id,

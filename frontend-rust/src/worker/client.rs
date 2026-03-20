@@ -24,6 +24,11 @@ pub struct WorkerClient {
     reconnect_attempt: u32,
     intentional_disconnect: bool,
     subscribed_chunks: Vec<i64>,
+    // Store closures to prevent memory leaks
+    onopen_cb: Option<Closure<dyn FnMut(web_sys::Event)>>,
+    onmessage_cb: Option<Closure<dyn FnMut(web_sys::MessageEvent)>>,
+    onerror_cb: Option<Closure<dyn FnMut(web_sys::Event)>>,
+    onclose_cb: Option<Closure<dyn FnMut(web_sys::CloseEvent)>>,
 }
 
 thread_local! {
@@ -39,6 +44,10 @@ impl WorkerClient {
             reconnect_attempt: 0,
             intentional_disconnect: false,
             subscribed_chunks: Vec::new(),
+            onopen_cb: None,
+            onmessage_cb: None,
+            onerror_cb: None,
+            onclose_cb: None,
         }
     }
 
@@ -50,38 +59,50 @@ impl WorkerClient {
         self.database = database.clone();
         self.intentional_disconnect = false;
 
+        // Clean up old WebSocket and closures
+        if let Some(old_ws) = self.ws.take() {
+            old_ws.close().ok();
+        }
+        self.onopen_cb = None;
+        self.onmessage_cb = None;
+        self.onerror_cb = None;
+        self.onclose_cb = None;
+
         let full_uri = format!("{}/{}", uri, database);
 
         let ws = WebSocket::new(&full_uri).expect("Failed to create WebSocket");
         ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
 
         // Set up WebSocket callbacks
-        let ws_clone = ws.clone();
         let onopen = Closure::wrap(Box::new(move |_event: web_sys::Event| {
             web_sys::console::log_1(&"WebSocket connected".into());
-            send_to_main_thread(WorkerToMain::Connected);
 
-            // Subscribe to checkbox_chunk table
-            let subscribe_msg = r#"{"call":{"fn":"subscribe","args":["SELECT * FROM checkbox_chunk"]}}"#;
-            ws_clone.send_with_str(subscribe_msg).ok();
+            // Reset reconnection counter on successful connection
+            CLIENT.with(|c| {
+                if let Some(client) = c.borrow().as_ref() {
+                    client.borrow_mut().reconnect_attempt = 0;
+                }
+            });
+
+            send_to_main_thread(WorkerToMain::Connected);
         }) as Box<dyn FnMut(_)>);
 
         ws.set_onopen(Some(onopen.as_ref().unchecked_ref()));
-        onopen.forget();
+        self.onopen_cb = Some(onopen);
 
         let onmessage = Closure::wrap(Box::new(move |event: web_sys::MessageEvent| {
             handle_ws_message(event);
         }) as Box<dyn FnMut(_)>);
 
         ws.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
-        onmessage.forget();
+        self.onmessage_cb = Some(onmessage);
 
         let onerror = Closure::wrap(Box::new(move |_event: web_sys::Event| {
             web_sys::console::error_1(&"WebSocket error".into());
         }) as Box<dyn FnMut(_)>);
 
         ws.set_onerror(Some(onerror.as_ref().unchecked_ref()));
-        onerror.forget();
+        self.onerror_cb = Some(onerror);
 
         let onclose = Closure::wrap(Box::new(move |_event: web_sys::CloseEvent| {
             web_sys::console::log_1(&"WebSocket closed".into());
@@ -89,9 +110,17 @@ impl WorkerClient {
         }) as Box<dyn FnMut(_)>);
 
         ws.set_onclose(Some(onclose.as_ref().unchecked_ref()));
-        onclose.forget();
+        self.onclose_cb = Some(onclose);
 
         self.ws = Some(ws);
+    }
+
+    /// Subscribe to checkbox_chunk table
+    pub fn subscribe(&self) {
+        if let Some(ws) = &self.ws {
+            let subscribe_msg = r#"{"call":{"fn":"subscribe","args":["SELECT * FROM checkbox_chunk"]}}"#;
+            ws.send_with_str(subscribe_msg).ok();
+        }
     }
 
     /// Send BSATN-encoded reducer call
@@ -129,7 +158,10 @@ impl WorkerClient {
             return;
         }
 
-        let backoff_ms = BACKOFF_SCHEDULE[self.reconnect_attempt as usize];
+        let backoff_ms = BACKOFF_SCHEDULE
+            .get(self.reconnect_attempt as usize)
+            .copied()
+            .unwrap_or(*BACKOFF_SCHEDULE.last().unwrap());
         web_sys::console::log_1(
             &format!(
                 "Reconnecting in {}ms (attempt {}/{})",
@@ -246,18 +278,14 @@ pub fn encode_batch_update_args(updates: &[(i64, u32, u8, u8, u8, bool)]) -> Vec
 
 /// Base64 encode bytes
 fn base64_encode(data: &[u8]) -> String {
-    use js_sys::Uint8Array;
-    let uint8_array = Uint8Array::new_with_length(data.len() as u32);
-    uint8_array.copy_from(data);
-
     let window = js_sys::global();
     let btoa = js_sys::Reflect::get(&window, &JsValue::from_str("btoa"))
         .expect("btoa not found");
     let btoa_fn = btoa.dyn_ref::<js_sys::Function>().expect("btoa not a function");
 
-    // Convert Uint8Array to binary string
-    let binary_string = (0..data.len())
-        .map(|i| char::from_u32(data[i] as u32).unwrap())
+    // Convert to binary string properly
+    let binary_string = data.iter()
+        .map(|&byte| byte as char)
         .collect::<String>();
 
     btoa_fn
