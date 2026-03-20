@@ -103,7 +103,7 @@ fn clear_doom_chunks(state: &AppState) {
 
     crate::db::flush_pending_updates(state.clone());
 
-    web_sys::console::log_1(&"Doom chunk cleared".into());
+    web_sys::console::log_1(&"Doom chunk cleared and synced to database".into());
 }
 
 /// Initialize and start Doom mode
@@ -268,23 +268,17 @@ fn handle_doom_frame_delta(
         return;
     }
 
-    // Send batch update to server
-    // OPTIMIZATION: Apply updates locally only (optimistic)
-    // Don't add to pending_updates or flush to server
-    // This eliminates the 24-32 MB server broadcast bottleneck
-    state.loaded_chunks.update(|chunks| {
-        for (chunk_id, cell_offset, r, g, b, checked) in &updates {
-            chunks.entry(*chunk_id).or_insert_with(|| vec![0u8; crate::constants::CHUNK_DATA_SIZE]);
-            if let Some(data) = chunks.get_mut(chunk_id) {
-                crate::db::set_checkbox(data, *cell_offset as usize, *r, *g, *b, *checked);
-            }
-        }
+    let t2_5 = js_sys::Date::now();
+
+    // Send batch update to server for shared multiplayer Doom
+    state.pending_updates.update(|pending| {
+        pending.extend(updates.clone());
     });
 
     let t3 = js_sys::Date::now();
 
-    // Trigger re-render
-    state.render_version.update(|v| *v += 1);
+    // Flush to database immediately
+    crate::db::flush_pending_updates(state);
 
     let t4 = js_sys::Date::now();
 
