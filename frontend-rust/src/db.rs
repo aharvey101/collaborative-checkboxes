@@ -227,27 +227,17 @@ pub fn init_connection(state: AppState) {
         let state_update = state;
         client_mut.on_chunk_update(Box::new(move |_old_bytes: &[u8], new_bytes: &[u8]| {
             if let Some(chunk) = CheckboxChunk::from_bsatn(new_bytes) {
-                // Only update if we have this chunk loaded
-                let should_update = state_update.loaded_chunks.with_untracked(|chunks| {
-                    if let Some(existing) = chunks.get(&chunk.chunk_id) {
-                        existing != &chunk.state
-                    } else {
-                        false
-                    }
-                });
+                // Check if we have this chunk loaded (don't compare data - too expensive for large chunks)
+                let have_chunk = state_update
+                    .loaded_chunks
+                    .with_untracked(|chunks| chunks.contains_key(&chunk.chunk_id));
 
-                if should_update {
-                    web_sys::console::log_1(
-                        &format!(
-                            "Chunk {} updated from server, version {}",
-                            chunk.chunk_id, chunk.version
-                        )
-                        .into(),
-                    );
+                if have_chunk {
+                    // Update the chunk data
                     state_update.loaded_chunks.update(|chunks| {
                         chunks.insert(chunk.chunk_id, chunk.state);
                     });
-                    // Trigger full re-render for server updates
+                    // Trigger re-render
                     state_update.render_version.update(|v| *v += 1);
                 }
             }
