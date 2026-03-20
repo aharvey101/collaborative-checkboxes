@@ -237,3 +237,24 @@ pub fn get_render_version() -> u32 {
             .unwrap_or(0)
     })
 }
+
+// Check if doom chunk has any non-zero pixel data (for e2e tests).
+// Returns the count of non-zero bytes in the doom chunk, or 0 if not loaded.
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn get_doom_chunk_nonzero_count() -> u32 {
+    use crate::utils::chunk_coords_to_id;
+    let doom_chunk_id = chunk_coords_to_id(5, 5);
+    TEST_STATE.with(|s| {
+        s.borrow()
+            .as_ref()
+            .map(|state| {
+                state.loaded_chunks.with_untracked(|chunks| {
+                    chunks
+                        .get(&doom_chunk_id)
+                        .map(|data| data.iter().filter(|&&b| b != 0).count() as u32)
+                        .unwrap_or(0)
+                })
+            })
+            .unwrap_or(0)
+    })
+}
