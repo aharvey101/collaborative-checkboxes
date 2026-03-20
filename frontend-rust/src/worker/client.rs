@@ -203,7 +203,8 @@ fn send_to_main_thread(msg: WorkerToMain) {
         .dyn_into::<DedicatedWorkerGlobalScope>()
         .expect("not in worker");
 
-    let value = serde_wasm_bindgen::to_value(&msg).expect("serialization failed");
+    let json = serde_json::to_string(&msg).expect("serialization failed");
+    let value = wasm_bindgen::JsValue::from_str(&json);
     scope.post_message(&value).expect("postMessage failed");
 }
 

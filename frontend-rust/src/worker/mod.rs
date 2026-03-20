@@ -35,12 +35,12 @@ fn handle_main_message(event: web_sys::MessageEvent) {
     let data = event.data();
 
     // Deserialize message
-    let msg: MainToWorker = match serde_wasm_bindgen::from_value(data) {
-        Ok(m) => m,
-        Err(e) => {
-            web_sys::console::error_1(&format!("Failed to parse message: {:?}", e).into());
-            return;
-        }
+    let msg: MainToWorker = match data.as_string() {
+        Some(json_str) => match serde_json::from_str(&json_str) {
+            Ok(m) => m,
+            Err(_) => return,
+        },
+        None => return,
     };
 
     web_sys::console::log_1(&format!("Worker received: {:?}", msg).into());
