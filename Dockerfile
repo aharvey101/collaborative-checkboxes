@@ -17,6 +17,7 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # Install wasm target and trunk
 RUN rustup target add wasm32-unknown-unknown
 RUN cargo install trunk --locked
+RUN cargo install wasm-bindgen-cli --locked
 
 # Set working directory
 WORKDIR /app/frontend-rust
