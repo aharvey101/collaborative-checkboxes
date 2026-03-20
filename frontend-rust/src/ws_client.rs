@@ -351,6 +351,24 @@ fn handle_transaction_update(client: &SharedClient, tx: TransactionUpdate) {
     }
 }
 
+/// Extract chunk_id from BSATN row bytes (first 8 bytes, little-endian i64)
+fn extract_chunk_id(row_bytes: &[u8]) -> Option<i64> {
+    if row_bytes.len() >= 8 {
+        Some(i64::from_le_bytes([
+            row_bytes[0],
+            row_bytes[1],
+            row_bytes[2],
+            row_bytes[3],
+            row_bytes[4],
+            row_bytes[5],
+            row_bytes[6],
+            row_bytes[7],
+        ]))
+    } else {
+        None
+    }
+}
+
 /// Process a table update
 fn process_table_update(client: &SharedClient, table: &TableUpdate) {
     let table_name: &str = &table.table_name;
@@ -363,15 +381,37 @@ fn process_table_update(client: &SharedClient, table: &TableUpdate) {
     for rows in table.rows.iter() {
         match rows {
             TableUpdateRows::PersistentTable(persistent) => {
-                // Handle inserts
-                for row_bytes in &persistent.inserts {
-                    if let Some(cb) = client.borrow_mut().on_chunk_insert.as_mut() {
-                        cb(&row_bytes);
+                // SpacetimeDB sends row updates as delete+insert pairs
+                // Match them by chunk_id to detect updates vs pure inserts/deletes
+                use std::collections::HashMap;
+
+                // Build a map of deleted rows by chunk_id (clone bytes to avoid borrow issues)
+                let mut deleted: HashMap<i64, Vec<u8>> = HashMap::new();
+                for row_bytes in &persistent.deletes {
+                    if let Some(chunk_id) = extract_chunk_id(&row_bytes) {
+                        deleted.insert(chunk_id, row_bytes.to_vec());
                     }
                 }
 
-                // Handle deletes
-                for row_bytes in &persistent.deletes {
+                // Process inserts - check if they match a delete (update) or are new (insert)
+                for row_bytes in &persistent.inserts {
+                    if let Some(chunk_id) = extract_chunk_id(&row_bytes) {
+                        if let Some(old_bytes) = deleted.remove(&chunk_id) {
+                            // This is an UPDATE (delete + insert of same chunk_id)
+                            if let Some(cb) = client.borrow_mut().on_chunk_update.as_mut() {
+                                cb(&old_bytes, &row_bytes);
+                            }
+                        } else {
+                            // This is a pure INSERT
+                            if let Some(cb) = client.borrow_mut().on_chunk_insert.as_mut() {
+                                cb(&row_bytes);
+                            }
+                        }
+                    }
+                }
+
+                // Any remaining deletes are pure deletes (no matching insert)
+                for (_chunk_id, row_bytes) in deleted {
                     if let Some(cb) = client.borrow_mut().on_chunk_delete.as_mut() {
                         cb(&row_bytes);
                     }
