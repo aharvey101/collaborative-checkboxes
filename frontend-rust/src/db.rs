@@ -1,19 +1,19 @@
 //! Database integration module
 //!
-//! This module bridges the SpacetimeDB WebSocket client with Leptos reactive state.
+//! This module handles checkbox state management and integrates with the worker bridge.
 //! It handles:
-//! - Connection lifecycle
 //! - Deserializing CheckboxChunk rows from BSATN
-//! - Updating Leptos signals when data arrives
-//! - Sending reducer calls for checkbox toggles
+//! - Optimistic updates for immediate UI feedback
+//! - Sending updates to worker for server synchronization
 
 use crate::constants::CHUNK_DATA_SIZE;
-use crate::state::{AppState, ConnectionStatus, PendingUpdate};
+use crate::state::AppState;
 use crate::utils::{chunk_coords_to_id, grid_to_chunk_coords, grid_to_local};
-use crate::ws_client::{call_reducer, connect, subscribe, SharedClient, SpacetimeClient};
 use leptos::prelude::*;
-use std::cell::RefCell;
-use std::rc::Rc;
+// OLD IMPORTS - Worker handles networking now
+// use crate::ws_client::{call_reducer, connect, subscribe, SharedClient, SpacetimeClient};
+// use std::cell::RefCell;
+// use std::rc::Rc;
 
 use crate::constants::CHUNK_SIZE;
 
@@ -111,6 +111,9 @@ pub fn local_to_cell_offset(local_col: u32, local_row: u32) -> u32 {
     local_row * CHUNK_SIZE + local_col
 }
 
+// OLD CODE - Worker handles networking now
+// Kept for reference during migration
+/*
 // Global client storage - we use thread_local for WASM safety
 thread_local! {
     static CLIENT: RefCell<Option<SharedClient>> = const { RefCell::new(None) };
@@ -247,10 +250,14 @@ pub fn init_connection(state: AppState) {
     // Connect
     connect(client, &uri, &database);
 }
+*/
 
 /// Toggle a checkbox at the given grid position (signed coords for infinite grid)
 /// Returns the new checked state for immediate visual feedback
 pub fn toggle_checkbox(state: AppState, col: i32, row: i32) -> Option<bool> {
+    use crate::worker_bridge::send_to_worker;
+    use crate::worker_protocol::MainToWorker;
+
     let (chunk_x, chunk_y) = grid_to_chunk_coords(col, row);
     let chunk_id = chunk_coords_to_id(chunk_x, chunk_y);
     let (local_col, local_row) = grid_to_local(col, row);
@@ -259,7 +266,7 @@ pub fn toggle_checkbox(state: AppState, col: i32, row: i32) -> Option<bool> {
     // Get user color
     let (r, g, b) = state.user_color.get_untracked();
 
-    // Ensure chunk exists locally (create empty chunk if needed)
+    // Ensure chunk exists locally
     state.loaded_chunks.update(|chunks| {
         chunks
             .entry(chunk_id)
@@ -275,19 +282,23 @@ pub fn toggle_checkbox(state: AppState, col: i32, row: i32) -> Option<bool> {
     });
     let new_value = !current_value;
 
-    // Optimistic update - set with user's color
+    // Optimistic update - immediate UI feedback
+    // (Server will reconcile when update comes back)
     state.loaded_chunks.update(|chunks| {
         if let Some(data) = chunks.get_mut(&chunk_id) {
             set_checkbox(data, cell_offset, r, g, b, new_value);
         }
     });
 
-    // Send to server
-    if let Some(client) = get_client() {
-        // Encode reducer arguments: (chunk_id: i64, cell_offset: u32, r: u8, g: u8, b: u8, checked: bool)
-        let args = encode_update_checkbox_args(chunk_id, cell_offset as u32, r, g, b, new_value);
-        call_reducer(&client, "update_checkbox", &args);
-    }
+    // Send to worker (non-blocking - worker handles connection state)
+    send_to_worker(MainToWorker::UpdateCheckbox {
+        chunk_id,
+        cell_offset: cell_offset as u32,
+        r,
+        g,
+        b,
+        checked: new_value,
+    });
 
     Some(new_value)
 }
@@ -391,6 +402,9 @@ pub fn set_checkbox_unchecked(state: AppState, col: i32, row: i32) -> Option<boo
 /// Flush pending updates to the server as a batch
 /// This should be called on mouseup or after a debounce timer
 pub fn flush_pending_updates(state: AppState) {
+    use crate::worker_bridge::send_to_worker;
+    use crate::worker_protocol::MainToWorker;
+
     // Take all pending updates atomically
     let updates = state.pending_updates.with_untracked(|u| u.clone());
     if updates.is_empty() {
@@ -402,13 +416,19 @@ pub fn flush_pending_updates(state: AppState) {
 
     web_sys::console::log_1(&format!("Flushing {} pending updates", updates.len()).into());
 
-    // Send batch to server
-    if let Some(client) = get_client() {
-        let args = encode_batch_update_args(&updates);
-        call_reducer(&client, "batch_update_checkboxes", &args);
-    }
+    // Send to worker
+    send_to_worker(MainToWorker::BatchUpdate { updates });
 }
 
+/// Subscribe to a set of chunks by their coordinates
+/// NOTE: In worker architecture, subscription is handled automatically by the worker
+/// This function is kept for compatibility but does nothing
+pub fn subscribe_to_chunks(_state: AppState, _chunks: Vec<(i32, i32)>) {
+    // Worker handles all subscriptions automatically
+    // This function exists for API compatibility only
+}
+
+/*
 /// Encode arguments for batch_update_checkboxes reducer
 /// Format: length-prefixed array of CheckboxUpdate { chunk_id: i64, cell_offset: u32, r: u8, g: u8, b: u8, checked: bool }
 fn encode_batch_update_args(updates: &[PendingUpdate]) -> Vec<u8> {
@@ -521,3 +541,4 @@ fn get_spacetimedb_uri() -> String {
         "wss://maincloud.spacetimedb.com".to_string()
     }
 }
+*/

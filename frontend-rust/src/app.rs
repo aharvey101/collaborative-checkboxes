@@ -3,8 +3,9 @@ use leptos::prelude::*;
 use crate::bookmark::{load_viewport, parse_bookmark, save_viewport};
 use crate::components::{CheckboxCanvas, Header};
 use crate::constants::CELL_SIZE;
-use crate::db::init_connection;
 use crate::state::AppState;
+use crate::worker_bridge::{init_worker, send_to_worker};
+use crate::worker_protocol::{MainToWorker, WorkerToMain};
 
 const STYLES: &str = include_str!("styles.css");
 
@@ -69,8 +70,46 @@ pub fn App() -> impl IntoView {
             }
         }
 
-        // Initialize SpacetimeDB connection
-        init_connection(state);
+        // Initialize worker
+        let _ = init_worker(move |msg| {
+            match msg {
+                WorkerToMain::Connected => {
+                    state.status.set(crate::state::ConnectionStatus::Connected);
+                    state.status_message.set("Connected".to_string());
+                }
+                WorkerToMain::ChunkInserted { chunk_id, state: chunk_state, version } => {
+                    web_sys::console::log_1(&format!("Chunk {} inserted, version {}", chunk_id, version).into());
+                    state.loaded_chunks.update(|chunks| {
+                        chunks.insert(chunk_id, chunk_state);
+                    });
+                    state.subscribed_chunks.update(|subs| {
+                        subs.insert(chunk_id);
+                    });
+                    state.loading_chunks.update(|loading| {
+                        loading.remove(&chunk_id);
+                    });
+                    state.render_version.update(|v| *v += 1);
+                }
+                WorkerToMain::ChunkUpdated { chunk_id, state: chunk_state, version } => {
+                    web_sys::console::log_1(&format!("Chunk {} updated, version {}", chunk_id, version).into());
+                    state.loaded_chunks.update(|chunks| {
+                        chunks.insert(chunk_id, chunk_state);
+                    });
+                    state.render_version.update(|v| *v += 1);
+                }
+                WorkerToMain::FatalError { message } => {
+                    state.status.set(crate::state::ConnectionStatus::Error);
+                    state.status_message.set(message);
+                }
+            }
+        });
+
+        // Connect to SpacetimeDB via worker
+        let uri = get_spacetimedb_uri();
+        send_to_worker(MainToWorker::Connect {
+            uri,
+            database: "checkboxes".to_string(),
+        });
     });
 
     // Save viewport to localStorage when it changes (debounced via effect)
@@ -86,5 +125,18 @@ pub fn App() -> impl IntoView {
         <style>{STYLES}</style>
         <Header state=state />
         <CheckboxCanvas state=state />
+    }
+}
+
+/// Get the SpacetimeDB URI based on environment
+fn get_spacetimedb_uri() -> String {
+    let window = web_sys::window().expect("no window");
+    let location = window.location();
+    let hostname = location.hostname().unwrap_or_default();
+
+    if hostname == "localhost" || hostname == "127.0.0.1" {
+        "ws://127.0.0.1:3000".to_string()
+    } else {
+        "wss://maincloud.spacetimedb.com".to_string()
     }
 }
