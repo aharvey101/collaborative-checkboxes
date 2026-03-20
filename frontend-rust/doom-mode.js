@@ -90,20 +90,20 @@ window.DoomMode = (function() {
         const indices = new Uint32Array(delta.indices);
 
         // Pack colors into a single array: [r, g, b, checked, r, g, b, checked, ...]
-        const colorData = new Uint8Array(delta.colors.length * 4);
+        const packedColors = new Uint8Array(delta.colors.length * 4);
         for (let i = 0; i < delta.colors.length; i++) {
-            colorData[i * 4] = delta.colors[i][0];     // r
-            colorData[i * 4 + 1] = delta.colors[i][1]; // g
-            colorData[i * 4 + 2] = delta.colors[i][2]; // b
-            colorData[i * 4 + 3] = delta.colors[i][3]; // checked
+            packedColors[i * 4] = delta.colors[i][0];     // r
+            packedColors[i * 4 + 1] = delta.colors[i][1]; // g
+            packedColors[i * 4 + 2] = delta.colors[i][2]; // b
+            packedColors[i * 4 + 3] = delta.colors[i][3]; // checked
         }
 
         // Call the Rust callback with delta data including colors
-        // Parameters: indices, colorData, width, height, offset_x, offset_y
+        // Parameters: indices, packedColors, width, height, offset_x, offset_y
         const CHUNK_OFFSET_X = 5000;
         const CHUNK_OFFSET_Y = 5000;
 
-        currentCallback(indices, colorData, DOOM_WIDTH, DOOM_HEIGHT, CHUNK_OFFSET_X, CHUNK_OFFSET_Y);
+        currentCallback(indices, packedColors, DOOM_WIDTH, DOOM_HEIGHT, CHUNK_OFFSET_X, CHUNK_OFFSET_Y);
     }
 
     return {
@@ -204,3 +204,5 @@ window.DoomMode = (function() {
         }
     };
 })();
+
+console.log('✓ DoomMode loaded successfully');

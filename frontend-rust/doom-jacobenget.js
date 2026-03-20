@@ -159,3 +159,4 @@ class DoomJacobenget {
 
 // Export for use in other modules
 window.DoomJacobenget = DoomJacobenget;
+console.log('✓ DoomJacobenget loaded successfully');
