@@ -108,8 +108,12 @@ fn clear_doom_chunks(state: &AppState) {
 
 /// Initialize and start Doom mode
 pub async fn start_doom_mode(state: AppState) -> Result<(), String> {
+    web_sys::console::log_1(&"Checking DoomMode availability...".into());
+
     if !is_doom_available() {
-        return Err("DoomMode not available - js-dos not loaded".to_string());
+        web_sys::console::error_1(&"DoomMode JavaScript object not found!".into());
+        web_sys::console::log_1(&"Check if doom-jacobenget.js and doom-mode.js loaded correctly".into());
+        return Err("DoomMode not available - check console for details".to_string());
     }
 
     web_sys::console::log_1(&"Starting Doom mode...".into());
@@ -125,7 +129,7 @@ pub async fn start_doom_mode(state: AppState) -> Result<(), String> {
     // Show the doom container
     set_doom_container_visible(true);
 
-    // Initialize js-dos
+    // Initialize WASM Doom
     let promise = init("doom-container");
     let result = wasm_bindgen_futures::JsFuture::from(promise).await;
 
