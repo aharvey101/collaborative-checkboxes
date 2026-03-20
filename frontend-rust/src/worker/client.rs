@@ -6,6 +6,11 @@
 //! `handle_ws_close` are defined later in this file.
 
 use super::protocol::{MainToWorker, WorkerToMain};
+use spacetimedb_client_api_messages::websocket::v2::{
+    ServerMessage, InitialConnection, SubscribeApplied, TransactionUpdate,
+    TableUpdate, TableUpdateRows, QueryRows, SubscriptionError, ReducerResult,
+};
+use spacetimedb_lib::bsatn;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
@@ -15,6 +20,11 @@ use web_sys::{DedicatedWorkerGlobalScope, WebSocket};
 // Reconnection constants
 const BACKOFF_SCHEDULE: [u32; 5] = [5000, 10000, 20000, 40000, 60000];
 const MAX_RETRIES: u32 = 5;
+
+// Compression tags for server messages
+const COMPRESSION_NONE: u8 = 0;
+const COMPRESSION_BROTLI: u8 = 1;
+const COMPRESSION_GZIP: u8 = 2;
 
 /// SpacetimeDB client state
 pub struct WorkerClient {
@@ -233,68 +243,208 @@ fn handle_ws_message(event: web_sys::MessageEvent) {
     }
 }
 
-/// Parse SpacetimeDB binary message
+/// Parse SpacetimeDB binary message using v2 protocol
 ///
-/// Note: Message type constants are from SpacetimeDB v2.0 protocol.
-/// Reference: https://spacetimedb.com/docs/sdks/rust/quickstart
-/// If these values don't work, check SpacetimeDB client logs for actual message types.
+/// Protocol:
+/// 1. First byte is compression tag (0=none, 1=brotli, 2=gzip)
+/// 2. Decompress the message bytes
+/// 3. Deserialize using bsatn::from_slice into ServerMessage
+/// 4. Handle ServerMessage variants
 fn parse_spacetimedb_message(bytes: &[u8]) {
     if bytes.is_empty() {
         return;
     }
 
-    // SpacetimeDB message format:
-    // - First byte is message type
-    // - 0x01 = TransactionUpdate
-    // - 0x02 = IdentityToken
-    // - 0x03 = SubscriptionUpdate
+    // First byte is compression tag
+    let compression_tag = bytes[0];
+    let message_bytes = &bytes[1..];
 
-    let msg_type = bytes[0];
-
-    match msg_type {
-        0x03 => {
-            // SubscriptionUpdate - contains table rows
-            parse_subscription_update(&bytes[1..]);
-        }
-        0x01 => {
-            // TransactionUpdate - row inserts/updates/deletes
-            parse_transaction_update(&bytes[1..]);
-        }
+    // Decompress if needed
+    let decompressed = match compression_tag {
+        COMPRESSION_NONE => message_bytes.to_vec(),
+        COMPRESSION_BROTLI => match decompress_brotli(message_bytes) {
+            Ok(data) => data,
+            Err(e) => {
+                web_sys::console::error_1(&format!("Brotli decompression failed: {}", e).into());
+                return;
+            }
+        },
+        COMPRESSION_GZIP => match decompress_gzip(message_bytes) {
+            Ok(data) => data,
+            Err(e) => {
+                web_sys::console::error_1(&format!("Gzip decompression failed: {}", e).into());
+                return;
+            }
+        },
         _ => {
-            web_sys::console::log_1(&format!("Unknown message type: {}", msg_type).into());
+            web_sys::console::error_1(
+                &format!("Unknown compression tag: {}", compression_tag).into(),
+            );
+            return;
+        }
+    };
+
+    // Deserialize the server message
+    let message: ServerMessage = match bsatn::from_slice(&decompressed) {
+        Ok(msg) => msg,
+        Err(e) => {
+            web_sys::console::error_1(&format!("Failed to deserialize message: {:?}", e).into());
+            return;
+        }
+    };
+
+    // Handle the message
+    handle_server_message(message);
+}
+
+/// Decompress brotli data
+fn decompress_brotli(data: &[u8]) -> Result<Vec<u8>, String> {
+    let mut output = Vec::new();
+    let mut reader = brotli::Decompressor::new(data, 4096);
+    std::io::copy(&mut reader, &mut output).map_err(|e| e.to_string())?;
+    Ok(output)
+}
+
+/// Decompress gzip data
+fn decompress_gzip(data: &[u8]) -> Result<Vec<u8>, String> {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+
+    let mut decoder = GzDecoder::new(data);
+    let mut output = Vec::new();
+    decoder
+        .read_to_end(&mut output)
+        .map_err(|e| e.to_string())?;
+    Ok(output)
+}
+
+/// Handle a deserialized server message
+fn handle_server_message(message: ServerMessage) {
+    match message {
+        ServerMessage::InitialConnection(init) => {
+            handle_initial_connection(init);
+        }
+        ServerMessage::SubscribeApplied(sub) => {
+            handle_subscribe_applied(sub);
+        }
+        ServerMessage::TransactionUpdate(tx) => {
+            handle_transaction_update(tx);
+        }
+        ServerMessage::SubscriptionError(err) => {
+            handle_subscription_error(err);
+        }
+        ServerMessage::ReducerResult(result) => {
+            handle_reducer_result(result);
+        }
+        ServerMessage::UnsubscribeApplied(_) => {
+            web_sys::console::log_1(&"Unsubscribe applied".into());
+        }
+        ServerMessage::OneOffQueryResult(_) => {
+            web_sys::console::log_1(&"One-off query result".into());
+        }
+        ServerMessage::ProcedureResult(_) => {
+            web_sys::console::log_1(&"Procedure result".into());
         }
     }
 }
 
-/// Parse subscription update (initial data load)
-fn parse_subscription_update(bytes: &[u8]) {
-    // For now, assume checkbox_chunk table rows
-    // Each row is BSATN-encoded: (chunk_id: i64, state: Vec<u8>, version: u64)
+/// Handle initial connection message
+fn handle_initial_connection(init: InitialConnection) {
+    web_sys::console::log_1(&format!("Connected with identity: {:?}", init.identity).into());
+    send_to_main_thread(WorkerToMain::Connected);
+}
 
-    let mut offset = 0;
-    while offset < bytes.len() {
-        if let Some(chunk) = parse_checkbox_chunk(&bytes[offset..]) {
-            // Calculate offset before moving chunk
-            let state_len = chunk.state.len();
+/// Handle subscribe applied message
+fn handle_subscribe_applied(sub: SubscribeApplied) {
+    web_sys::console::log_1(
+        &format!("Subscribe applied for query set {:?}", sub.query_set_id).into(),
+    );
 
-            send_to_main_thread(WorkerToMain::ChunkInserted {
-                chunk_id: chunk.chunk_id,
-                state: chunk.state,
-                version: chunk.version,
-            });
+    // Process initial rows
+    process_query_rows(&sub.rows);
+}
 
-            // Move offset forward (8 + 4 + state.len() + 8)
-            offset += 8 + 4 + state_len + 8;
-        } else {
-            break;
+/// Handle transaction update message
+fn handle_transaction_update(tx: TransactionUpdate) {
+    for query_set in tx.query_sets.iter() {
+        for table in query_set.tables.iter() {
+            process_table_update(table);
         }
     }
 }
 
-/// Parse transaction update (real-time updates)
-fn parse_transaction_update(bytes: &[u8]) {
-    // Similar to subscription update
-    parse_subscription_update(bytes);
+/// Handle subscription error
+fn handle_subscription_error(err: SubscriptionError) {
+    let error_msg = format!("Subscription error: {}", err.error);
+    web_sys::console::error_1(&error_msg.clone().into());
+}
+
+/// Handle reducer result
+fn handle_reducer_result(result: ReducerResult) {
+    web_sys::console::log_1(
+        &format!("Reducer result: request_id={} success={:?}",
+                 result.request_id, result.result).into()
+    );
+}
+
+/// Process query rows (initial subscription data)
+fn process_query_rows(rows: &QueryRows) {
+    for table_rows in rows.tables.iter() {
+        let table_name: &str = &table_rows.table;
+
+        if table_name != "checkbox_chunk" {
+            continue;
+        }
+
+        for row_bytes in &table_rows.rows {
+            if let Some(chunk) = parse_checkbox_chunk(&row_bytes) {
+                send_to_main_thread(WorkerToMain::ChunkInserted {
+                    chunk_id: chunk.chunk_id,
+                    state: chunk.state,
+                    version: chunk.version,
+                });
+            }
+        }
+    }
+}
+
+/// Process a table update
+fn process_table_update(table: &TableUpdate) {
+    let table_name: &str = &table.table_name;
+
+    // We only care about checkbox_chunk table
+    if table_name != "checkbox_chunk" {
+        return;
+    }
+
+    for rows in table.rows.iter() {
+        match rows {
+            TableUpdateRows::PersistentTable(persistent) => {
+                // Process inserts
+                for row_bytes in &persistent.inserts {
+                    if let Some(chunk) = parse_checkbox_chunk(&row_bytes) {
+                        send_to_main_thread(WorkerToMain::ChunkInserted {
+                            chunk_id: chunk.chunk_id,
+                            state: chunk.state,
+                            version: chunk.version,
+                        });
+                    }
+                }
+
+                // Process deletes (not typically used in our app)
+                for row_bytes in &persistent.deletes {
+                    if let Some(chunk) = parse_checkbox_chunk(&row_bytes) {
+                        web_sys::console::log_1(
+                            &format!("Chunk deleted: {}", chunk.chunk_id).into()
+                        );
+                    }
+                }
+            }
+            TableUpdateRows::EventTable(_) => {
+                // Not applicable for checkbox_chunk
+            }
+        }
+    }
 }
 
 /// Parse a single CheckboxChunk from BSATN
