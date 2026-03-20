@@ -9,8 +9,8 @@ use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, Worker};
 
 thread_local! {
-    static WORKER: RefCell<Option<Worker>> = RefCell::new(None);
-    static ON_MESSAGE_CALLBACK: RefCell<Option<Closure<dyn FnMut(MessageEvent)>>> = RefCell::new(None);
+    static WORKER: RefCell<Option<Worker>> = const { RefCell::new(None) };
+    static ON_MESSAGE_CALLBACK: RefCell<Option<Closure<dyn FnMut(MessageEvent)>>> = const { RefCell::new(None) };
 }
 
 /// Initialize worker and set up message handlers
@@ -54,9 +54,9 @@ where
 pub fn send_to_worker(msg: MainToWorker) {
     WORKER.with(|w| {
         if let Some(worker) = w.borrow().as_ref() {
-            let json = serde_json::to_string(&msg).expect("serialization failed");
+            let Ok(json) = serde_json::to_string(&msg) else { return };
             let value = JsValue::from_str(&json);
-            worker.post_message(&value).expect("postMessage failed");
+            let _ = worker.post_message(&value);
         }
     });
 }
