@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('Doom performance with worker (compare to baseline)', async ({ page }) => {
-    await page.goto('http://localhost:8080');
+    await page.goto('http://127.0.0.1:8090');
     await page.waitForSelector('canvas', { timeout: 15000 });
     await page.waitForTimeout(3000); // Wait for worker initialization
 

@@ -163,11 +163,20 @@ fn get_spacetimedb_uri() -> String {
 // Expose for testing
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn test_send_batch_update(updates_js: wasm_bindgen::JsValue) -> Result<(), wasm_bindgen::JsValue> {
-    use crate::worker::protocol::MainToWorker;
+    use crate::worker_bridge;
 
-    let updates: Vec<(i64, u32, u8, u8, u8, bool)> = serde_wasm_bindgen::from_value(updates_js)
-        .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to parse updates: {:?}", e)))?;
+    // Serialize updates to JSON string directly without deserializing to Rust first
+    // This minimizes main thread blocking (avoids expensive serde_wasm_bindgen::from_value)
+    let updates_json = js_sys::JSON::stringify(&updates_js)
+        .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to stringify updates: {:?}", e)))?
+        .as_string()
+        .ok_or_else(|| wasm_bindgen::JsValue::from_str("Failed to convert to string"))?;
 
-    send_to_worker(MainToWorker::BatchUpdate { updates });
+    // Manually construct the message JSON to avoid Rust serialization overhead
+    let msg_json = format!(r#"{{"BatchUpdate":{{"updates":{}}}}}"#, updates_json);
+
+    // Send the raw JSON to worker (bypasses normal send_to_worker to avoid double serialization)
+    worker_bridge::send_raw_json(&msg_json);
+
     Ok(())
 }

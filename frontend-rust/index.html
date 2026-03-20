@@ -11,6 +11,14 @@
     <link data-trunk rel="copy-file" href="doom-mode.js" />
     <script src="doom-jacobenget.js"></script>
     <script src="doom-mode.js"></script>
+    <script>
+        // Expose test function to window for e2e tests
+        window.addEventListener('TrunkApplicationStarted', () => {
+            if (window.wasmBindings && window.wasmBindings.test_send_batch_update) {
+                window.test_send_batch_update = window.wasmBindings.test_send_batch_update;
+            }
+        });
+    </script>
 </head>
 <body>
     <div id="app"></div>

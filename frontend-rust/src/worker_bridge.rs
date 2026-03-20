@@ -69,6 +69,16 @@ pub fn send_to_worker(msg: MainToWorker) {
     });
 }
 
+/// Send raw JSON string to worker (for testing/performance optimization)
+pub fn send_raw_json(json: &str) {
+    WORKER.with(|w| {
+        if let Some(worker) = w.borrow().as_ref() {
+            let value = JsValue::from_str(json);
+            let _ = worker.post_message(&value);
+        }
+    });
+}
+
 /// Terminate worker
 pub fn terminate_worker() {
     WORKER.with(|w| {

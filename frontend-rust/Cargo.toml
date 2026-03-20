@@ -8,7 +8,7 @@ crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "worker"
-path = "src/worker/mod.rs"
+path = "src/bin/worker.rs"
 
 [dependencies]
 leptos = { version = "0.7", features = ["csr"] }
