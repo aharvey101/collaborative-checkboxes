@@ -8,6 +8,7 @@ pub mod doom;
 pub mod state;
 pub mod utils;
 pub mod webgl;
+pub mod worker;
 pub mod ws_client;
 
 // Re-export for convenience
