@@ -124,11 +124,11 @@ pub fn App() -> impl IntoView {
                 });
             }
         });
+    });
 
-        // Cleanup: terminate worker when component unmounts
-        on_cleanup(|| {
-            terminate_worker();
-        });
+    // Cleanup: terminate worker when component unmounts
+    on_cleanup(|| {
+        terminate_worker();
     });
 
     // Save viewport to localStorage when it changes (debounced via effect)
