@@ -217,9 +217,131 @@ where
 
 /// Handle WebSocket message
 fn handle_ws_message(event: web_sys::MessageEvent) {
-    // TODO: Parse SpacetimeDB messages and send to main thread
-    // For now, just log
-    web_sys::console::log_1(&"WebSocket message received".into());
+    let data = event.data();
+
+    // Check if it's a string first (doesn't consume data)
+    if let Some(text) = data.as_string() {
+        // JSON message (for subscribe acknowledgment)
+        web_sys::console::log_1(&format!("JSON message: {}", text).into());
+    } else if let Ok(array_buffer) = data.dyn_into::<js_sys::ArrayBuffer>() {
+        // Binary BSATN message
+        let uint8_array = js_sys::Uint8Array::new(&array_buffer);
+        let bytes = uint8_array.to_vec();
+
+        // Parse SpacetimeDB message
+        parse_spacetimedb_message(&bytes);
+    }
+}
+
+/// Parse SpacetimeDB binary message
+///
+/// Note: Message type constants are from SpacetimeDB v2.0 protocol.
+/// Reference: https://spacetimedb.com/docs/sdks/rust/quickstart
+/// If these values don't work, check SpacetimeDB client logs for actual message types.
+fn parse_spacetimedb_message(bytes: &[u8]) {
+    if bytes.is_empty() {
+        return;
+    }
+
+    // SpacetimeDB message format:
+    // - First byte is message type
+    // - 0x01 = TransactionUpdate
+    // - 0x02 = IdentityToken
+    // - 0x03 = SubscriptionUpdate
+
+    let msg_type = bytes[0];
+
+    match msg_type {
+        0x03 => {
+            // SubscriptionUpdate - contains table rows
+            parse_subscription_update(&bytes[1..]);
+        }
+        0x01 => {
+            // TransactionUpdate - row inserts/updates/deletes
+            parse_transaction_update(&bytes[1..]);
+        }
+        _ => {
+            web_sys::console::log_1(&format!("Unknown message type: {}", msg_type).into());
+        }
+    }
+}
+
+/// Parse subscription update (initial data load)
+fn parse_subscription_update(bytes: &[u8]) {
+    // For now, assume checkbox_chunk table rows
+    // Each row is BSATN-encoded: (chunk_id: i64, state: Vec<u8>, version: u64)
+
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if let Some(chunk) = parse_checkbox_chunk(&bytes[offset..]) {
+            // Calculate offset before moving chunk
+            let state_len = chunk.state.len();
+
+            send_to_main_thread(WorkerToMain::ChunkInserted {
+                chunk_id: chunk.chunk_id,
+                state: chunk.state,
+                version: chunk.version,
+            });
+
+            // Move offset forward (8 + 4 + state.len() + 8)
+            offset += 8 + 4 + state_len + 8;
+        } else {
+            break;
+        }
+    }
+}
+
+/// Parse transaction update (real-time updates)
+fn parse_transaction_update(bytes: &[u8]) {
+    // Similar to subscription update
+    parse_subscription_update(bytes);
+}
+
+/// Parse a single CheckboxChunk from BSATN
+fn parse_checkbox_chunk(bytes: &[u8]) -> Option<CheckboxChunk> {
+    let mut reader = bytes;
+
+    // Read chunk_id (i64, little-endian)
+    if reader.len() < 8 {
+        return None;
+    }
+    let chunk_id = i64::from_le_bytes([
+        reader[0], reader[1], reader[2], reader[3], reader[4], reader[5], reader[6], reader[7],
+    ]);
+    reader = &reader[8..];
+
+    // Read state (Vec<u8>): length-prefixed with u32
+    if reader.len() < 4 {
+        return None;
+    }
+    let state_len = u32::from_le_bytes([reader[0], reader[1], reader[2], reader[3]]) as usize;
+    reader = &reader[4..];
+
+    if reader.len() < state_len {
+        return None;
+    }
+    let state = reader[..state_len].to_vec();
+    reader = &reader[state_len..];
+
+    // Read version (u64, little-endian)
+    if reader.len() < 8 {
+        return None;
+    }
+    let version = u64::from_le_bytes([
+        reader[0], reader[1], reader[2], reader[3], reader[4], reader[5], reader[6], reader[7],
+    ]);
+
+    Some(CheckboxChunk {
+        chunk_id,
+        state,
+        version,
+    })
+}
+
+struct CheckboxChunk {
+    chunk_id: i64,
+    state: Vec<u8>,
+    version: u64,
 }
 
 /// Handle WebSocket close
