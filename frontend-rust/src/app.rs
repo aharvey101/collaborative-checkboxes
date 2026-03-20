@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 use std::cell::Cell;
+use wasm_bindgen::JsCast;
 
 use crate::bookmark::{load_viewport, parse_bookmark, save_viewport};
 use crate::components::{CheckboxCanvas, Header};
@@ -13,6 +14,9 @@ const STYLES: &str = include_str!("styles.css");
 #[component]
 pub fn App() -> impl IntoView {
     let state = AppState::new();
+
+    // Store state for testing
+    set_test_state(state);
 
     // Parse bookmark URL on mount and set initial viewport
     Effect::new(move || {
@@ -80,34 +84,44 @@ pub fn App() -> impl IntoView {
             if !initialized.get() {
                 initialized.set(true);
 
-                let _ = init_worker(move |msg| {
+                let result = init_worker(move |msg| {
+                    web_sys::console::log_1(&format!("[Main] Received message from worker: {:?}", msg).into());
                     match msg {
                         WorkerToMain::Connected => {
+                            web_sys::console::log_1(&"[Main] Worker connected!".into());
                             state.status.set(crate::state::ConnectionStatus::Connected);
                             state.status_message.set("Connected".to_string());
+
+                            // Subscribe to checkbox chunks
+                            web_sys::console::log_1(&"[Main] Sending Subscribe message to worker".into());
+                            send_to_worker(MainToWorker::Subscribe { chunk_ids: vec![] });
                         }
                         WorkerToMain::ChunkInserted { chunk_id, state: chunk_state, version } => {
                             web_sys::console::log_1(&format!("Chunk {} inserted, version {}", chunk_id, version).into());
-                            state.loaded_chunks.update(|chunks| {
-                                chunks.insert(chunk_id, chunk_state);
-                            });
+                            // Ignore doom chunks - they're rendered optimistically and SpacetimeDB
+                            // round-trips would overwrite our local frames with stale data.
+                            if !crate::doom::is_doom_chunk(chunk_id) {
+                                state.loaded_chunks.update(|chunks| {
+                                    chunks.insert(chunk_id, chunk_state);
+                                });
+                                state.render_version.update(|v| *v += 1);
+                            }
                             state.subscribed_chunks.update(|subs| {
                                 subs.insert(chunk_id);
                             });
                             state.loading_chunks.update(|loading| {
                                 loading.remove(&chunk_id);
                             });
-                            state.render_version.update(|v| *v += 1);
                         }
                         WorkerToMain::ChunkUpdated { chunk_id, state: chunk_state, version } => {
                             web_sys::console::log_1(&format!("Chunk {} updated, version {}", chunk_id, version).into());
-                            // Note: We don't check versions here - server is source of truth.
-                            // Optimistic updates from user actions are intentionally overwritten
-                            // by authoritative server state to maintain consistency.
-                            state.loaded_chunks.update(|chunks| {
-                                chunks.insert(chunk_id, chunk_state);
-                            });
-                            state.render_version.update(|v| *v += 1);
+                            // Ignore doom chunks - optimistic frames are authoritative locally.
+                            if !crate::doom::is_doom_chunk(chunk_id) {
+                                state.loaded_chunks.update(|chunks| {
+                                    chunks.insert(chunk_id, chunk_state);
+                                });
+                                state.render_version.update(|v| *v += 1);
+                            }
                         }
                         WorkerToMain::FatalError { message } => {
                             state.status.set(crate::state::ConnectionStatus::Error);
@@ -116,12 +130,31 @@ pub fn App() -> impl IntoView {
                     }
                 });
 
-                // Connect to SpacetimeDB via worker
+                match result {
+                    Ok(_) => web_sys::console::log_1(&"[Main] Worker initialized successfully".into()),
+                    Err(e) => {
+                        web_sys::console::error_1(&format!("[Main] Worker init failed: {}", e).into());
+                        return;
+                    }
+                }
+
+                // Connect to SpacetimeDB via worker (with delay to ensure worker is ready)
                 let uri = get_spacetimedb_uri();
-                send_to_worker(MainToWorker::Connect {
-                    uri,
-                    database: "checkboxes".to_string(),
+                let callback = wasm_bindgen::closure::Closure::once(move || {
+                    web_sys::console::log_1(&format!("[Main] Sending Connect message to worker: {} / checkboxes", uri).into());
+                    send_to_worker(MainToWorker::Connect {
+                        uri,
+                        database: "checkboxes".to_string(),
+                    });
                 });
+                web_sys::window()
+                    .unwrap()
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(
+                        callback.as_ref().unchecked_ref(),
+                        100
+                    )
+                    .ok();
+                callback.forget();
             }
         });
     });
@@ -179,4 +212,27 @@ pub fn test_send_batch_update(updates_js: wasm_bindgen::JsValue) -> Result<(), w
     worker_bridge::send_raw_json(&msg_json);
 
     Ok(())
+}
+
+// Global state for testing
+thread_local! {
+    static TEST_STATE: std::cell::RefCell<Option<AppState>> = const { std::cell::RefCell::new(None) };
+}
+
+// Store state reference for testing
+pub fn set_test_state(state: AppState) {
+    TEST_STATE.with(|s| {
+        *s.borrow_mut() = Some(state);
+    });
+}
+
+// Get current render version (for e2e tests)
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn get_render_version() -> u32 {
+    TEST_STATE.with(|s| {
+        s.borrow()
+            .as_ref()
+            .map(|state| state.render_version.get_untracked())
+            .unwrap_or(0)
+    })
 }

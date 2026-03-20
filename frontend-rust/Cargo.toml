@@ -48,6 +48,8 @@ web-sys = { version = "0.3", features = [
     "MessagePort",
     "WorkerGlobalScope",
     "Worker",
+    "WorkerOptions",
+    "WorkerType",
     # WebGL
     "WebGlRenderingContext",
     "WebGlProgram",

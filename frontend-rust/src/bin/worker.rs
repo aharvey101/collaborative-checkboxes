@@ -29,7 +29,9 @@ pub fn worker_main() {
 
 /// Handle messages from main thread
 fn handle_main_message(event: web_sys::MessageEvent) {
+    web_sys::console::log_1(&"[Worker] Received message from main thread".into());
     let data = event.data();
+    web_sys::console::log_1(&format!("[Worker] Message data: {:?}", data).into());
 
     // Deserialize message
     let msg: MainToWorker = match data.as_string() {

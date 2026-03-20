@@ -18,9 +18,21 @@ pub fn init_worker<F>(on_message: F) -> Result<(), String>
 where
     F: Fn(WorkerToMain) + 'static,
 {
-    // Create worker
-    let worker = Worker::new("pkg/worker/worker.js")
-        .map_err(|e| format!("Failed to create worker: {:?}", e))?;
+    web_sys::console::log_1(&"[Main] init_worker called".into());
+
+    // Create worker (as ES6 module)
+    let mut options = web_sys::WorkerOptions::new();
+    options.set_type(web_sys::WorkerType::Module);
+
+    web_sys::console::log_1(&"[Main] Creating worker from worker-loader.js".into());
+    let worker = Worker::new_with_options("worker-loader.js", &options)
+        .map_err(|e| {
+            let err_msg = format!("Failed to create worker: {:?}", e);
+            web_sys::console::error_1(&err_msg.clone().into());
+            err_msg
+        })?;
+
+    web_sys::console::log_1(&"[Main] Worker created successfully".into());
 
     // Set up message handler
     let callback = Closure::wrap(Box::new(move |event: MessageEvent| {
