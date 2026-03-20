@@ -28,9 +28,17 @@ where
         let msg: WorkerToMain = match event.data().as_string() {
             Some(json_str) => match serde_json::from_str(&json_str) {
                 Ok(m) => m,
-                Err(_) => return,
+                Err(e) => {
+                    web_sys::console::error_1(
+                        &format!("Failed to deserialize worker message: {:?}", e).into(),
+                    );
+                    return;
+                }
             },
-            None => return,
+            None => {
+                web_sys::console::error_1(&"Received non-string message from worker".into());
+                return;
+            }
         };
 
         on_message(msg);

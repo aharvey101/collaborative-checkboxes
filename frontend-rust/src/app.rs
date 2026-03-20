@@ -1,10 +1,11 @@
 use leptos::prelude::*;
+use std::cell::Cell;
 
 use crate::bookmark::{load_viewport, parse_bookmark, save_viewport};
 use crate::components::{CheckboxCanvas, Header};
 use crate::constants::CELL_SIZE;
 use crate::state::AppState;
-use crate::worker_bridge::{init_worker, send_to_worker};
+use crate::worker_bridge::{init_worker, send_to_worker, terminate_worker};
 use crate::worker_protocol::{MainToWorker, WorkerToMain};
 
 const STYLES: &str = include_str!("styles.css");
@@ -70,45 +71,63 @@ pub fn App() -> impl IntoView {
             }
         }
 
-        // Initialize worker
-        let _ = init_worker(move |msg| {
-            match msg {
-                WorkerToMain::Connected => {
-                    state.status.set(crate::state::ConnectionStatus::Connected);
-                    state.status_message.set("Connected".to_string());
-                }
-                WorkerToMain::ChunkInserted { chunk_id, state: chunk_state, version } => {
-                    web_sys::console::log_1(&format!("Chunk {} inserted, version {}", chunk_id, version).into());
-                    state.loaded_chunks.update(|chunks| {
-                        chunks.insert(chunk_id, chunk_state);
-                    });
-                    state.subscribed_chunks.update(|subs| {
-                        subs.insert(chunk_id);
-                    });
-                    state.loading_chunks.update(|loading| {
-                        loading.remove(&chunk_id);
-                    });
-                    state.render_version.update(|v| *v += 1);
-                }
-                WorkerToMain::ChunkUpdated { chunk_id, state: chunk_state, version } => {
-                    web_sys::console::log_1(&format!("Chunk {} updated, version {}", chunk_id, version).into());
-                    state.loaded_chunks.update(|chunks| {
-                        chunks.insert(chunk_id, chunk_state);
-                    });
-                    state.render_version.update(|v| *v += 1);
-                }
-                WorkerToMain::FatalError { message } => {
-                    state.status.set(crate::state::ConnectionStatus::Error);
-                    state.status_message.set(message);
-                }
+        // Initialize worker (with once-only guard to prevent re-initialization)
+        thread_local! {
+            static WORKER_INITIALIZED: Cell<bool> = const { Cell::new(false) };
+        }
+
+        WORKER_INITIALIZED.with(|initialized| {
+            if !initialized.get() {
+                initialized.set(true);
+
+                let _ = init_worker(move |msg| {
+                    match msg {
+                        WorkerToMain::Connected => {
+                            state.status.set(crate::state::ConnectionStatus::Connected);
+                            state.status_message.set("Connected".to_string());
+                        }
+                        WorkerToMain::ChunkInserted { chunk_id, state: chunk_state, version } => {
+                            web_sys::console::log_1(&format!("Chunk {} inserted, version {}", chunk_id, version).into());
+                            state.loaded_chunks.update(|chunks| {
+                                chunks.insert(chunk_id, chunk_state);
+                            });
+                            state.subscribed_chunks.update(|subs| {
+                                subs.insert(chunk_id);
+                            });
+                            state.loading_chunks.update(|loading| {
+                                loading.remove(&chunk_id);
+                            });
+                            state.render_version.update(|v| *v += 1);
+                        }
+                        WorkerToMain::ChunkUpdated { chunk_id, state: chunk_state, version } => {
+                            web_sys::console::log_1(&format!("Chunk {} updated, version {}", chunk_id, version).into());
+                            // Note: We don't check versions here - server is source of truth.
+                            // Optimistic updates from user actions are intentionally overwritten
+                            // by authoritative server state to maintain consistency.
+                            state.loaded_chunks.update(|chunks| {
+                                chunks.insert(chunk_id, chunk_state);
+                            });
+                            state.render_version.update(|v| *v += 1);
+                        }
+                        WorkerToMain::FatalError { message } => {
+                            state.status.set(crate::state::ConnectionStatus::Error);
+                            state.status_message.set(message);
+                        }
+                    }
+                });
+
+                // Connect to SpacetimeDB via worker
+                let uri = get_spacetimedb_uri();
+                send_to_worker(MainToWorker::Connect {
+                    uri,
+                    database: "checkboxes".to_string(),
+                });
             }
         });
 
-        // Connect to SpacetimeDB via worker
-        let uri = get_spacetimedb_uri();
-        send_to_worker(MainToWorker::Connect {
-            uri,
-            database: "checkboxes".to_string(),
+        // Cleanup: terminate worker when component unmounts
+        on_cleanup(|| {
+            terminate_worker();
         });
     });
 
