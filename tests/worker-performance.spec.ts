@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('Worker main thread blocking test', async ({ page }) => {
-    await page.goto('http://127.0.0.1:8090');
+    await page.goto('http://localhost:8080');
     await page.waitForTimeout(2000);
 
     // Measure main thread blocking during batch update
@@ -18,9 +18,7 @@ test('Worker main thread blocking test', async ({ page }) => {
             const start = performance.now();
 
             // Send to worker (this should be fast)
-            const testFn = (window as any).wasmBindings?.test_send_batch_update || (window as any).test_send_batch_update;
-            if (!testFn) throw new Error('test_send_batch_update not available');
-            testFn(updates);
+            (window as any).test_send_batch_update(updates);
 
             const end = performance.now();
             resolve(end - start);
