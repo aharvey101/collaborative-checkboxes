@@ -23,6 +23,9 @@
             if (window.wasmBindings && window.wasmBindings.get_render_version) {
                 window.get_render_version = window.wasmBindings.get_render_version;
             }
+            if (window.wasmBindings && window.wasmBindings.get_doom_chunk_nonzero_count) {
+                window.get_doom_chunk_nonzero_count = window.wasmBindings.get_doom_chunk_nonzero_count;
+            }
         });
     </script>
 </head>
