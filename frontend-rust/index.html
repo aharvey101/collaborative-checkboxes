@@ -15,5 +15,23 @@
 <body>
     <div id="app"></div>
     <!-- Doom container (will be created by doom-mode.js if needed) -->
+
+    <!-- Expose test helpers for E2E tests -->
+    <script>
+    // Wait for WASM bindings to be available, then expose test_send_batch_update globally
+    window.addEventListener('TrunkApplicationStarted', () => {
+        console.log('TrunkApplicationStarted event fired');
+        console.log('window.wasmBindings available:', !!window.wasmBindings);
+        if (window.wasmBindings) {
+            console.log('wasmBindings keys:', Object.keys(window.wasmBindings));
+            if (window.wasmBindings.test_send_batch_update) {
+                window.test_send_batch_update = window.wasmBindings.test_send_batch_update;
+                console.log('✅ test_send_batch_update attached to window');
+            } else {
+                console.log('❌ test_send_batch_update NOT found in wasmBindings');
+            }
+        }
+    });
+    </script>
 </body>
 </html>

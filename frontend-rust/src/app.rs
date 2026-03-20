@@ -160,14 +160,4 @@ fn get_spacetimedb_uri() -> String {
     }
 }
 
-// Expose for testing
-#[wasm_bindgen::prelude::wasm_bindgen]
-pub fn test_send_batch_update(updates_js: wasm_bindgen::JsValue) -> Result<(), wasm_bindgen::JsValue> {
-    use crate::worker::protocol::MainToWorker;
-
-    let updates: Vec<(i64, u32, u8, u8, u8, bool)> = serde_wasm_bindgen::from_value(updates_js)
-        .map_err(|e| wasm_bindgen::JsValue::from_str(&format!("Failed to parse updates: {:?}", e)))?;
-
-    send_to_worker(MainToWorker::BatchUpdate { updates });
-    Ok(())
-}
+// Test helper function moved to lib.rs for proper wasm-bindgen export

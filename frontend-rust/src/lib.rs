@@ -23,3 +23,18 @@ pub use db::toggle_checkbox;
 pub use state::{AppState, ConnectionStatus};
 // OLD EXPORTS - Worker handles networking now
 // pub use ws_client::{SharedClient, SpacetimeClient};
+
+// Export test helper for performance tests
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn test_send_batch_update(updates_js: JsValue) -> Result<(), JsValue> {
+    use worker::protocol::MainToWorker;
+    use worker_bridge::send_to_worker;
+
+    let updates: Vec<(i64, u32, u8, u8, u8, bool)> = serde_wasm_bindgen::from_value(updates_js)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse updates: {:?}", e)))?;
+
+    send_to_worker(MainToWorker::BatchUpdate { updates });
+    Ok(())
+}
