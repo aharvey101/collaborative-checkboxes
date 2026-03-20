@@ -5,10 +5,15 @@
 //! Note: Helper functions like `send_to_main_thread`, `handle_ws_message`, and
 //! `handle_ws_close` are defined later in this file.
 
-use super::protocol::{MainToWorker, WorkerToMain};
-use spacetimedb_client_api_messages::websocket::v2::{
-    ServerMessage, InitialConnection, SubscribeApplied, TransactionUpdate,
-    TableUpdate, TableUpdateRows, QueryRows, SubscriptionError, ReducerResult,
+use super::protocol::WorkerToMain;
+use bytes::Bytes;
+use spacetimedb_client_api_messages::websocket::{
+    common::QuerySetId,
+    v2::{
+        CallReducer, CallReducerFlags, ClientMessage, InitialConnection, QueryRows,
+        ReducerResult, ServerMessage, Subscribe, SubscribeApplied, SubscriptionError,
+        TableUpdate, TableUpdateRows, TransactionUpdate,
+    },
 };
 use spacetimedb_lib::bsatn;
 use std::cell::RefCell;
@@ -26,6 +31,9 @@ const COMPRESSION_NONE: u8 = 0;
 const COMPRESSION_BROTLI: u8 = 1;
 const COMPRESSION_GZIP: u8 = 2;
 
+// WebSocket protocol identifier
+const WS_PROTOCOL: &str = "v2.bsatn.spacetimedb";
+
 /// SpacetimeDB client state
 pub struct WorkerClient {
     ws: Option<WebSocket>,
@@ -34,6 +42,7 @@ pub struct WorkerClient {
     reconnect_attempt: u32,
     intentional_disconnect: bool,
     subscribed_chunks: Vec<i64>,
+    request_id: u32,
     // Store closures to prevent memory leaks
     onopen_cb: Option<Closure<dyn FnMut(web_sys::Event)>>,
     onmessage_cb: Option<Closure<dyn FnMut(web_sys::MessageEvent)>>,
@@ -54,11 +63,18 @@ impl WorkerClient {
             reconnect_attempt: 0,
             intentional_disconnect: false,
             subscribed_chunks: Vec::new(),
+            request_id: 0,
             onopen_cb: None,
             onmessage_cb: None,
             onerror_cb: None,
             onclose_cb: None,
         }
+    }
+
+    /// Get the next request ID
+    fn next_request_id(&mut self) -> u32 {
+        self.request_id += 1;
+        self.request_id
     }
 
     /// Connect to SpacetimeDB
@@ -78,9 +94,9 @@ impl WorkerClient {
         self.onerror_cb = None;
         self.onclose_cb = None;
 
-        let full_uri = format!("{}/{}", uri, database);
+        let url = format!("{}/v1/database/{}/subscribe", uri, database);
 
-        let ws = WebSocket::new(&full_uri).expect("Failed to create WebSocket");
+        let ws = WebSocket::new_with_str(&url, WS_PROTOCOL).expect("Failed to create WebSocket");
         ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
 
         // Set up WebSocket callbacks
@@ -126,24 +142,53 @@ impl WorkerClient {
     }
 
     /// Subscribe to checkbox_chunk table
-    pub fn subscribe(&self) {
-        if let Some(ws) = &self.ws {
-            let subscribe_msg = r#"{"call":{"fn":"subscribe","args":["SELECT * FROM checkbox_chunk"]}}"#;
-            ws.send_with_str(subscribe_msg).ok();
-        }
+    pub fn subscribe(&mut self) {
+        let request_id = self.next_request_id();
+
+        let subscribe = Subscribe {
+            request_id,
+            query_set_id: QuerySetId::new(request_id),
+            query_strings: vec!["SELECT * FROM checkbox_chunk".into()].into_boxed_slice(),
+        };
+
+        let message = ClientMessage::Subscribe(subscribe);
+        self.send_message(&message);
     }
 
     /// Send BSATN-encoded reducer call
-    pub fn call_reducer(&self, reducer_name: &str, args: &[u8]) {
-        if let Some(ws) = &self.ws {
-            // Format: {"call":{"fn":"reducer_name","args":[base64_args]}}
-            let args_base64 = base64_encode(args);
-            let msg = format!(
-                r#"{{"call":{{"fn":"{}","args":["{}"]}}}}"#,
-                reducer_name, args_base64
-            );
+    pub fn call_reducer(&mut self, reducer_name: &str, args: &[u8]) -> u32 {
+        let request_id = self.next_request_id();
 
-            ws.send_with_str(&msg).ok();
+        let call = CallReducer {
+            request_id,
+            flags: CallReducerFlags::Default,
+            reducer: reducer_name.into(),
+            args: Bytes::copy_from_slice(args),
+        };
+
+        let message = ClientMessage::CallReducer(call);
+        self.send_message(&message);
+
+        request_id
+    }
+
+    /// Send a client message
+    fn send_message(&self, message: &ClientMessage) {
+        let Some(ws) = &self.ws else {
+            web_sys::console::error_1(&"WebSocket not connected".into());
+            return;
+        };
+
+        let bytes = match bsatn::to_vec(message) {
+            Ok(b) => b,
+            Err(e) => {
+                web_sys::console::error_1(&format!("Failed to serialize message: {:?}", e).into());
+                return;
+            }
+        };
+
+        if let Err(e) = ws.send_with_u8_array(&bytes) {
+            web_sys::console::error_1(&format!("Failed to send message: {:?}", e).into());
         }
     }
 
@@ -546,23 +591,4 @@ pub fn encode_batch_update_args(updates: &[(i64, u32, u8, u8, u8, bool)]) -> Vec
     }
 
     buf
-}
-
-/// Base64 encode bytes
-fn base64_encode(data: &[u8]) -> String {
-    let window = js_sys::global();
-    let btoa = js_sys::Reflect::get(&window, &JsValue::from_str("btoa"))
-        .expect("btoa not found");
-    let btoa_fn = btoa.dyn_ref::<js_sys::Function>().expect("btoa not a function");
-
-    // Convert to binary string properly
-    let binary_string = data.iter()
-        .map(|&byte| byte as char)
-        .collect::<String>();
-
-    btoa_fn
-        .call1(&window, &JsValue::from_str(&binary_string))
-        .expect("btoa failed")
-        .as_string()
-        .expect("btoa didn't return string")
 }
