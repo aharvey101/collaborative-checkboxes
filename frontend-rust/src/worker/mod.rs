@@ -3,6 +3,7 @@
 pub mod protocol;
 pub mod client;
 
+use client::{encode_batch_update_args, encode_update_checkbox_args, init_client, with_client};
 use protocol::{MainToWorker, WorkerToMain};
 use wasm_bindgen::prelude::*;
 use web_sys::DedicatedWorkerGlobalScope;
@@ -12,6 +13,9 @@ use web_sys::DedicatedWorkerGlobalScope;
 pub fn worker_main() {
     console_error_panic_hook::set_once();
     web_sys::console::log_1(&"Worker started".into());
+
+    // Initialize client
+    init_client();
 
     // Set up message handler
     let scope = js_sys::global()
@@ -24,16 +28,6 @@ pub fn worker_main() {
 
     scope.set_onmessage(Some(handler.as_ref().unchecked_ref()));
     handler.forget();
-}
-
-/// Send message to main thread
-fn send_to_main(msg: WorkerToMain) {
-    let scope = js_sys::global()
-        .dyn_into::<DedicatedWorkerGlobalScope>()
-        .expect("not in worker context");
-
-    let value = serde_wasm_bindgen::to_value(&msg).expect("serialization failed");
-    scope.post_message(&value).expect("postMessage failed");
 }
 
 /// Handle messages from main thread
@@ -51,18 +45,39 @@ fn handle_main_message(event: web_sys::MessageEvent) {
 
     web_sys::console::log_1(&format!("Worker received: {:?}", msg).into());
 
-    // TODO: Handle messages (Phase 2)
     match msg {
         MainToWorker::Connect { uri, database } => {
-            web_sys::console::log_1(&format!("Connect to {} / {}", uri, database).into());
-            // Echo back success for now
-            send_to_main(WorkerToMain::Connected);
+            with_client(|client| {
+                client.connect(uri, database);
+            });
+        }
+        MainToWorker::Subscribe { chunk_ids } => {
+            web_sys::console::log_1(&format!("Subscribe to {} chunks", chunk_ids.len()).into());
+            // TODO: Implement subscription
+        }
+        MainToWorker::UpdateCheckbox {
+            chunk_id,
+            cell_offset,
+            r,
+            g,
+            b,
+            checked,
+        } => {
+            let args = encode_update_checkbox_args(chunk_id, cell_offset, r, g, b, checked);
+            with_client(|client| {
+                client.call_reducer("update_checkbox", &args);
+            });
+        }
+        MainToWorker::BatchUpdate { updates } => {
+            let args = encode_batch_update_args(&updates);
+            with_client(|client| {
+                client.call_reducer("batch_update_checkboxes", &args);
+            });
         }
         MainToWorker::Disconnect => {
-            web_sys::console::log_1(&"Disconnect requested".into());
-        }
-        _ => {
-            web_sys::console::log_1(&"Message received but not handled yet".into());
+            with_client(|client| {
+                client.disconnect();
+            });
         }
     }
 }
