@@ -12,6 +12,10 @@ window.DoomMode = (function() {
     const DOOM_WIDTH = 640;
     const DOOM_HEIGHT = 400;
 
+    // Color tolerance - only update if color difference exceeds this threshold
+    // Higher = fewer updates but less accurate colors
+    const COLOR_TOLERANCE = 80; // Sum of RGB differences (0-765 range)
+
     // Extract RGB colors from image data
     function extractColors(imageData) {
         const width = imageData.width;
@@ -53,13 +57,21 @@ window.DoomMode = (function() {
                 ]);
             }
         } else {
-            // Find changed pixels
+            // Find changed pixels with color tolerance
             for (let i = 0; i < newFrame.length / 4; i++) {
                 const idx = i * 4;
-                if (newFrame[idx] !== oldFrame[idx] ||
-                    newFrame[idx + 1] !== oldFrame[idx + 1] ||
-                    newFrame[idx + 2] !== oldFrame[idx + 2] ||
-                    newFrame[idx + 3] !== oldFrame[idx + 3]) {
+
+                // Calculate color difference
+                const rDiff = Math.abs(newFrame[idx] - oldFrame[idx]);
+                const gDiff = Math.abs(newFrame[idx + 1] - oldFrame[idx + 1]);
+                const bDiff = Math.abs(newFrame[idx + 2] - oldFrame[idx + 2]);
+                const colorDiff = rDiff + gDiff + bDiff;
+
+                // Check if checked state changed
+                const checkedChanged = newFrame[idx + 3] !== oldFrame[idx + 3];
+
+                // Only update if color difference exceeds tolerance OR checked state changed
+                if (colorDiff > COLOR_TOLERANCE || checkedChanged) {
                     indices.push(i);
                     colors.push([
                         newFrame[idx],     // r

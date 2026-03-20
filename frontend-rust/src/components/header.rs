@@ -25,6 +25,33 @@ pub fn Header(state: AppState) -> impl IntoView {
         state.scale.set(1.0);
     };
 
+    // Eraser mode toggle
+    let toggle_eraser = move |_| {
+        state.eraser_mode.update(|mode| *mode = !*mode);
+    };
+
+    let eraser_class = move || {
+        if state.eraser_mode.get() {
+            "eraser-btn active"
+        } else {
+            "eraser-btn"
+        }
+    };
+
+    // Brush size handler
+    let on_size_change = move |ev: web_sys::Event| {
+        let target = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok());
+        if let Some(input) = target {
+            if let Ok(size) = input.value().parse::<f64>() {
+                state.brush_size.set(size);
+            }
+        }
+    };
+
+    let brush_size_label = move || {
+        format!("Size: {:.0}px", state.brush_size.get())
+    };
+
     // Go to Doom location
     let go_to_doom = move |_| {
         doom::go_to_doom_location(state);
@@ -138,6 +165,19 @@ pub fn Header(state: AppState) -> impl IntoView {
             <div class=status_class>{status_text}</div>
             <div class="stats">{stats_text}</div>
             <button class="home-btn" on:click=go_home>"Go Home"</button>
+            <button class=eraser_class on:click=toggle_eraser>"Eraser"</button>
+            <div class="brush-size-control">
+                <label class="size-label">{brush_size_label}</label>
+                <input
+                    type="range"
+                    min="1"
+                    max="50"
+                    step="1"
+                    prop:value=move || state.brush_size.get()
+                    on:input=on_size_change
+                    class="size-slider"
+                />
+            </div>
             <button class="doom-location-btn" on:click=go_to_doom>"Go to Doom"</button>
             <button class="doom-btn" on:click=toggle_doom>{doom_btn_text}</button>
             {move || doom_running.get().then(|| view! {
