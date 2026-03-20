@@ -99,7 +99,6 @@ pub enum WorkerToMain {
     /// Chunk loaded from server (initial)
     ChunkInserted {
         chunk_id: i64,
-        #[serde(with = "serde_bytes")]
         state: Vec<u8>,
         version: u64,
     },
@@ -107,7 +106,6 @@ pub enum WorkerToMain {
     /// Chunk updated by another client
     ChunkUpdated {
         chunk_id: i64,
-        #[serde(with = "serde_bytes")]
         state: Vec<u8>,
         version: u64,
     },
@@ -119,25 +117,6 @@ pub enum WorkerToMain {
     FatalError {
         message: String,
     },
-}
-
-// Helper module for efficient byte serialization
-mod serde_bytes {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        bytes.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Vec::<u8>::deserialize(deserializer)
-    }
 }
 ```
 
@@ -299,6 +278,16 @@ pub fn worker_main() {
     handler.forget();
 }
 
+/// Send message to main thread
+fn send_to_main(msg: WorkerToMain) {
+    let scope = js_sys::global()
+        .dyn_into::<DedicatedWorkerGlobalScope>()
+        .expect("not in worker context");
+
+    let value = serde_wasm_bindgen::to_value(&msg).expect("serialization failed");
+    scope.post_message(&value).expect("postMessage failed");
+}
+
 /// Handle messages from main thread
 fn handle_main_message(event: web_sys::MessageEvent) {
     let data = event.data();
@@ -328,16 +317,6 @@ fn handle_main_message(event: web_sys::MessageEvent) {
             web_sys::console::log_1(&"Message received but not handled yet".into());
         }
     }
-}
-
-/// Send message to main thread
-fn send_to_main(msg: WorkerToMain) {
-    let scope = js_sys::global()
-        .dyn_into::<DedicatedWorkerGlobalScope>()
-        .expect("not in worker context");
-
-    let value = serde_wasm_bindgen::to_value(&msg).expect("serialization failed");
-    scope.post_message(&value).expect("postMessage failed");
 }
 ```
 
@@ -935,7 +914,11 @@ git commit -m "feat(worker): implement SpacetimeDB client in worker
 
 Find the `App` component in `frontend-rust/src/app.rs` and add worker initialization.
 
-First, check that `ConnectionStatus` enum exists in `frontend-rust/src/state.rs`. If not, add it:
+First, check that `ConnectionStatus` enum exists in `frontend-rust/src/state.rs` by reading the file:
+
+Run: `grep "enum ConnectionStatus" frontend-rust/src/state.rs`
+
+If it doesn't exist, add to `frontend-rust/src/state.rs`:
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -946,43 +929,42 @@ pub enum ConnectionStatus {
 }
 ```
 
-Then look for the component function and add after state initialization:
+Then look for the component function and add after state initialization. Note: `state` is Copy, so we can use it in the closure:
 
 ```rust
 // Initialize worker
 use crate::worker_bridge::{init_worker, send_to_worker};
 use crate::worker_protocol::{MainToWorker, WorkerToMain};
 
-let state_for_worker = state;
 let _ = init_worker(move |msg| {
     match msg {
         WorkerToMain::Connected => {
-            state_for_worker.status.set(crate::state::ConnectionStatus::Connected);
-            state_for_worker.status_message.set("Connected".to_string());
+            state.status.set(crate::state::ConnectionStatus::Connected);
+            state.status_message.set("Connected".to_string());
         }
         WorkerToMain::ChunkInserted { chunk_id, state: chunk_state, version } => {
             web_sys::console::log_1(&format!("Chunk {} inserted, version {}", chunk_id, version).into());
-            state_for_worker.loaded_chunks.update(|chunks| {
+            state.loaded_chunks.update(|chunks| {
                 chunks.insert(chunk_id, chunk_state);
             });
-            state_for_worker.subscribed_chunks.update(|subs| {
+            state.subscribed_chunks.update(|subs| {
                 subs.insert(chunk_id);
             });
-            state_for_worker.loading_chunks.update(|loading| {
+            state.loading_chunks.update(|loading| {
                 loading.remove(&chunk_id);
             });
-            state_for_worker.render_version.update(|v| *v += 1);
+            state.render_version.update(|v| *v += 1);
         }
         WorkerToMain::ChunkUpdated { chunk_id, state: chunk_state, version } => {
             web_sys::console::log_1(&format!("Chunk {} updated, version {}", chunk_id, version).into());
-            state_for_worker.loaded_chunks.update(|chunks| {
+            state.loaded_chunks.update(|chunks| {
                 chunks.insert(chunk_id, chunk_state);
             });
-            state_for_worker.render_version.update(|v| *v += 1);
+            state.render_version.update(|v| *v += 1);
         }
         WorkerToMain::FatalError { message } => {
-            state_for_worker.status.set(crate::state::ConnectionStatus::Error);
-            state_for_worker.status_message.set(message);
+            state.status.set(crate::state::ConnectionStatus::Error);
+            state.status_message.set(message);
         }
     }
 });
@@ -1014,7 +996,14 @@ fn get_spacetimedb_uri() -> String {
 
 - [ ] **Step 2: Update db.rs to use worker instead of direct WebSocket**
 
-Replace `flush_pending_updates` in `frontend-rust/src/db.rs`:
+First, locate the functions to modify:
+
+Run: `grep -n "pub fn flush_pending_updates" frontend-rust/src/db.rs`
+Run: `grep -n "pub fn toggle_checkbox" frontend-rust/src/db.rs`
+
+This shows the line numbers. Read those functions to understand current implementation.
+
+Then replace `flush_pending_updates` in `frontend-rust/src/db.rs`:
 
 ```rust
 /// Flush pending updates to the server as a batch
@@ -1352,19 +1341,22 @@ test('Doom performance with worker (compare to baseline)', async ({ page }) => {
 
 - [ ] **Step 2: Add test helper and create worker performance test**
 
-First, expose worker bridge for testing. Add to `frontend-rust/src/app.rs` after worker initialization:
+First, expose worker bridge for testing. Add to `frontend-rust/src/app.rs` at the bottom of the file:
 
 ```rust
+use wasm_bindgen::prelude::*;
+
 // Expose for testing
 #[wasm_bindgen]
-pub fn test_send_batch_update(updates_js: JsValue) {
+pub fn test_send_batch_update(updates_js: JsValue) -> Result<(), JsValue> {
     use crate::worker_bridge::send_to_worker;
     use crate::worker_protocol::MainToWorker;
 
     let updates: Vec<(i64, u32, u8, u8, u8, bool)> = serde_wasm_bindgen::from_value(updates_js)
-        .expect("Failed to parse updates");
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse updates: {:?}", e)))?;
 
     send_to_worker(MainToWorker::BatchUpdate { updates });
+    Ok(())
 }
 ```
 
@@ -1480,8 +1472,10 @@ Add to `frontend-rust/Trunk.toml`:
 [[hooks]]
 stage = "pre_build"
 command = "sh"
-command_arguments = ["-c", "./build-worker.sh"]
+command_arguments = ["-c", "cd frontend-rust && ./build-worker.sh"]
 ```
+
+Note: The hook runs from the repo root, so we cd into frontend-rust first.
 
 - [ ] **Step 3: Test full app functionality**
 
