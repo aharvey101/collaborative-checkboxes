@@ -300,6 +300,8 @@ fn parse_spacetimedb_message(bytes: &[u8]) {
         return;
     }
 
+    let t0 = js_sys::Date::now();
+
     // First byte is compression tag
     let compression_tag = bytes[0];
     let message_bytes = &bytes[1..];
@@ -329,6 +331,8 @@ fn parse_spacetimedb_message(bytes: &[u8]) {
         }
     };
 
+    let t1 = js_sys::Date::now();
+
     // Deserialize the server message
     let message: ServerMessage = match bsatn::from_slice(&decompressed) {
         Ok(msg) => msg,
@@ -337,6 +341,18 @@ fn parse_spacetimedb_message(bytes: &[u8]) {
             return;
         }
     };
+
+    let t2 = js_sys::Date::now();
+
+    // Log timing for chunk-sized messages
+    let compressed_kb = bytes.len() / 1024;
+    let decompressed_kb = decompressed.len() / 1024;
+    if decompressed_kb > 100 {
+        web_sys::console::log_1(&format!(
+            "[PERF worker] decompress={:.0}ms bsatn_parse={:.0}ms | {}KB -> {}KB",
+            t1 - t0, t2 - t1, compressed_kb, decompressed_kb
+        ).into());
+    }
 
     // Handle the message
     handle_server_message(message);
@@ -546,15 +562,71 @@ fn handle_ws_close() {
     });
 }
 
-/// Send message to main thread
+/// Send message to main thread.
+///
+/// For chunk data (ChunkInserted/ChunkUpdated), packs into a binary buffer
+/// and transfers the ArrayBuffer zero-copy. Format:
+///   [tag: u8] [chunk_id: i64 LE] [version: u64 LE] [state: rest of bytes]
+/// Tag: 1 = ChunkInserted, 2 = ChunkUpdated
+///
+/// For small messages (Connected, FatalError), uses JSON.
 fn send_to_main_thread(msg: WorkerToMain) {
     let scope = js_sys::global()
         .dyn_into::<DedicatedWorkerGlobalScope>()
         .expect("not in worker");
 
-    let json = serde_json::to_string(&msg).expect("serialization failed");
-    let value = wasm_bindgen::JsValue::from_str(&json);
-    scope.post_message(&value).expect("postMessage failed");
+    match msg {
+        WorkerToMain::ChunkInserted { chunk_id, state, version } => {
+            send_chunk_binary(&scope, 1, chunk_id, version, &state);
+        }
+        WorkerToMain::ChunkUpdated { chunk_id, state, version } => {
+            send_chunk_binary(&scope, 2, chunk_id, version, &state);
+        }
+        other => {
+            let json = serde_json::to_string(&other).expect("serialization failed");
+            let value = wasm_bindgen::JsValue::from_str(&json);
+            scope.post_message(&value).expect("postMessage failed");
+        }
+    }
+}
+
+/// Pack chunk data into a binary buffer and transfer to main thread.
+fn send_chunk_binary(scope: &DedicatedWorkerGlobalScope, tag: u8, chunk_id: i64, version: u64, state: &[u8]) {
+    let t0 = js_sys::Date::now();
+
+    // Header: 1 byte tag + 8 bytes chunk_id + 8 bytes version = 17 bytes
+    let total_len = 17 + state.len();
+    let buffer = js_sys::ArrayBuffer::new(total_len as u32);
+    let view = js_sys::Uint8Array::new(&buffer);
+
+    // Pack header
+    let mut header = [0u8; 17];
+    header[0] = tag;
+    header[1..9].copy_from_slice(&chunk_id.to_le_bytes());
+    header[9..17].copy_from_slice(&version.to_le_bytes());
+    view.set(&js_sys::Uint8Array::from(&header[..]), 0);
+
+    // Pack state data
+    // SAFETY: state slice is valid for the duration of this call
+    let state_view = unsafe { js_sys::Uint8Array::view(state) };
+    view.set(&state_view, 17);
+
+    let t1 = js_sys::Date::now();
+
+    // Transfer the ArrayBuffer (zero-copy move to main thread)
+    let transfer = js_sys::Array::new();
+    transfer.push(&buffer);
+    scope.post_message_with_transfer(&buffer, &transfer).expect("postMessage failed");
+
+    let t2 = js_sys::Date::now();
+
+    let data_kb = state.len() / 1024;
+    if data_kb > 100 {
+        web_sys::console::log_1(&format!(
+            "[PERF worker->main] pack_buffer={:.0}ms transfer={:.0}ms | {}KB binary",
+            t1 - t0, t2 - t1, data_kb
+        ).into());
+    }
 }
 
 /// Encode BSATN arguments for reducer

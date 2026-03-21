@@ -97,7 +97,8 @@ pub fn App() -> impl IntoView {
                             send_to_worker(MainToWorker::Subscribe { chunk_ids: vec![] });
                         }
                         WorkerToMain::ChunkInserted { chunk_id, state: chunk_state, version } => {
-                            web_sys::console::log_1(&format!("Chunk {} inserted, version {}", chunk_id, version).into());
+                            let t0 = js_sys::Date::now();
+                            let data_kb = chunk_state.len() / 1024;
                             // Only ignore doom chunk updates when WE are running Doom locally,
                             // to prevent server round-trips from overwriting optimistic frames.
                             // Other users' Doom frames should still be visible.
@@ -113,6 +114,13 @@ pub fn App() -> impl IntoView {
                             state.loading_chunks.update(|loading| {
                                 loading.remove(&chunk_id);
                             });
+                            let t1 = js_sys::Date::now();
+                            if data_kb > 100 {
+                                web_sys::console::log_1(&format!(
+                                    "[PERF main] chunk {} inserted state_update={:.0}ms | {}KB",
+                                    chunk_id, t1 - t0, data_kb
+                                ).into());
+                            }
                         }
                         WorkerToMain::ChunkUpdated { chunk_id, state: chunk_state, version } => {
                             web_sys::console::log_1(&format!("Chunk {} updated, version {}", chunk_id, version).into());
