@@ -39,47 +39,82 @@ where
         let t0 = js_sys::Date::now();
         let data = event.data();
 
-        // Try binary buffer first (chunk data), then fall back to JSON string
+        // Try binary buffer first (chunk data or delta batch), then fall back to JSON
         if let Ok(buffer) = data.clone().dyn_into::<js_sys::ArrayBuffer>() {
-            // Binary chunk message: [tag: u8] [chunk_id: i64] [version: u64] [state...]
             let view = js_sys::Uint8Array::new(&buffer);
             let len = view.length() as usize;
-            if len < 17 {
-                web_sys::console::error_1(&"Binary message too short".into());
+            if len < 1 {
                 return;
             }
 
-            let mut header = [0u8; 17];
-            view.slice(0, 17).copy_to(&mut header);
+            let mut tag_byte = [0u8; 1];
+            view.slice(0, 1).copy_to(&mut tag_byte);
+            let tag = tag_byte[0];
 
-            let tag = header[0];
-            let chunk_id = i64::from_le_bytes(header[1..9].try_into().unwrap());
-            let version = u64::from_le_bytes(header[9..17].try_into().unwrap());
+            if tag == 1 || tag == 2 {
+                // Chunk data: [tag: 1|2] [chunk_id: i64] [version: u64] [state...]
+                if len < 17 { return; }
+                let mut header = [0u8; 17];
+                view.slice(0, 17).copy_to(&mut header);
 
-            // Copy state data from the buffer
-            let state_len = len - 17;
-            let mut state = vec![0u8; state_len];
-            view.slice(17, len as u32).copy_to(&mut state);
+                let chunk_id = i64::from_le_bytes(header[1..9].try_into().unwrap());
+                let version = u64::from_le_bytes(header[9..17].try_into().unwrap());
 
-            let t1 = js_sys::Date::now();
-            let data_kb = state_len / 1024;
-            if data_kb > 100 {
-                web_sys::console::log_1(&format!(
-                    "[PERF main<-worker] unpack_buffer={:.0}ms | {}KB binary",
-                    t1 - t0, data_kb
-                ).into());
-            }
+                let state_len = len - 17;
+                let mut state = vec![0u8; state_len];
+                view.slice(17, len as u32).copy_to(&mut state);
 
-            let msg = match tag {
-                1 => WorkerToMain::ChunkInserted { chunk_id, state, version },
-                2 => WorkerToMain::ChunkUpdated { chunk_id, state, version },
-                _ => {
-                    web_sys::console::error_1(&format!("Unknown binary tag: {}", tag).into());
-                    return;
+                let t1 = js_sys::Date::now();
+                if state_len > 100_000 {
+                    web_sys::console::log_1(&format!(
+                        "[PERF main<-worker] unpack_buffer={:.0}ms | {}KB binary",
+                        t1 - t0, state_len / 1024
+                    ).into());
                 }
-            };
 
-            on_message(msg);
+                let msg = match tag {
+                    1 => WorkerToMain::ChunkInserted { chunk_id, state, version },
+                    _ => WorkerToMain::ChunkUpdated { chunk_id, state, version },
+                };
+                on_message(msg);
+            } else if tag == 3 {
+                // Delta batch: [tag: 3] [count: u32] [N × 16 bytes]
+                if len < 5 { return; }
+                let mut count_bytes = [0u8; 4];
+                view.slice(1, 5).copy_to(&mut count_bytes);
+                let count = u32::from_le_bytes(count_bytes) as usize;
+
+                let data_len = count * 16;
+                if len < 5 + data_len { return; }
+
+                let mut bytes = vec![0u8; data_len];
+                view.slice(5, (5 + data_len) as u32).copy_to(&mut bytes);
+
+                // Apply deltas directly to loaded_chunks — no full chunk replacement
+                // This is the key optimization: small deltas instead of 4MB blobs
+                use crate::state::AppState;
+                use leptos::prelude::*;
+
+                // We need AppState — get it from the test state or context
+                // Since on_message is a closure, we can't easily access AppState here.
+                // Instead, create a new message type that the app.rs handler will process.
+                // For now, reuse ChunkInserted isn't right. Let's call on_message with
+                // a special message. But WorkerToMain doesn't have a delta variant...
+                //
+                // Simplest approach: apply deltas here using the TEST_STATE thread-local
+                // that's already set up.
+                crate::app::apply_deltas(&bytes, count);
+
+                let t1 = js_sys::Date::now();
+                if count > 100 {
+                    web_sys::console::log_1(&format!(
+                        "[PERF main<-worker] apply_deltas={:.0}ms | {} deltas",
+                        t1 - t0, count
+                    ).into());
+                }
+            } else {
+                web_sys::console::error_1(&format!("Unknown binary tag: {}", tag).into());
+            }
             return;
         }
 

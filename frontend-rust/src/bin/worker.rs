@@ -70,6 +70,27 @@ fn schedule_flush() {
     closure.forget();
 }
 
+/// Periodically call snapshot_chunks to persist deltas to full chunk state.
+/// This keeps checkbox_chunk up-to-date for new subscribers and clears old deltas.
+fn schedule_snapshot() {
+    let scope: DedicatedWorkerGlobalScope = js_sys::global().unchecked_into();
+    let closure = Closure::once(Box::new(|| {
+        // Call snapshot_chunks reducer (no args — empty BSATN)
+        with_client(|client| {
+            client.call_reducer("snapshot_chunks", &[]);
+        });
+        web_sys::console::log_1(&"[worker] called snapshot_chunks".into());
+        // Schedule next snapshot
+        schedule_snapshot();
+    }) as Box<dyn FnOnce()>);
+
+    let _ = scope.set_timeout_with_callback_and_timeout_and_arguments_0(
+        closure.as_ref().unchecked_ref(),
+        5000, // every 5 seconds
+    );
+    closure.forget();
+}
+
 /// Worker entry point - called when worker starts
 #[wasm_bindgen(start)]
 pub fn worker_main() {
@@ -90,6 +111,9 @@ pub fn worker_main() {
 
     scope.set_onmessage(Some(handler.as_ref().unchecked_ref()));
     handler.forget();
+
+    // Start periodic snapshots
+    schedule_snapshot();
 }
 
 /// Handle messages from main thread

@@ -235,6 +235,41 @@ pub fn set_test_state(state: AppState) {
     });
 }
 
+/// Apply delta updates from the worker directly to loaded_chunks.
+/// Called from worker_bridge when a DeltaBatch binary message arrives.
+/// bytes: packed [N × 16 bytes: chunk_id(8) + cell_offset(4) + r + g + b + checked]
+pub fn apply_deltas(bytes: &[u8], count: usize) {
+    TEST_STATE.with(|s| {
+        let state = s.borrow();
+        let Some(state) = state.as_ref() else { return };
+
+        state.loaded_chunks.update(|chunks| {
+            use crate::constants::CHUNK_DATA_SIZE;
+            for i in 0..count {
+                let offset = i * 16;
+                if offset + 16 > bytes.len() { break; }
+
+                let chunk_id = i64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+                let cell_offset = u32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().unwrap());
+                let r = bytes[offset + 12];
+                let g = bytes[offset + 13];
+                let b = bytes[offset + 14];
+                let checked = bytes[offset + 15] != 0;
+
+                let data = chunks.entry(chunk_id).or_insert_with(|| vec![0u8; CHUNK_DATA_SIZE]);
+                let byte_idx = (cell_offset as usize) * 4;
+                if byte_idx + 3 < data.len() {
+                    data[byte_idx] = r;
+                    data[byte_idx + 1] = g;
+                    data[byte_idx + 2] = b;
+                    data[byte_idx + 3] = if checked { 0xFF } else { 0x00 };
+                }
+            }
+        });
+        state.render_version.update(|v| *v += 1);
+    });
+}
+
 // Get current render version (for e2e tests)
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn get_render_version() -> u32 {

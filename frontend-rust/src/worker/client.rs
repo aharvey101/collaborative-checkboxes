@@ -141,18 +141,25 @@ impl WorkerClient {
         self.ws = Some(ws);
     }
 
-    /// Subscribe to checkbox_chunk table
+    /// Subscribe to checkbox_chunk (initial load) and checkbox_delta (live updates)
     pub fn subscribe(&mut self) {
+        // Subscribe to full chunk state for initial load
         let request_id = self.next_request_id();
-
-        let subscribe = Subscribe {
+        let subscribe_chunks = Subscribe {
             request_id,
             query_set_id: QuerySetId::new(request_id),
             query_strings: vec!["SELECT * FROM checkbox_chunk".into()].into_boxed_slice(),
         };
+        self.send_message(&ClientMessage::Subscribe(subscribe_chunks));
 
-        let message = ClientMessage::Subscribe(subscribe);
-        self.send_message(&message);
+        // Subscribe to delta table for real-time updates
+        let request_id2 = self.next_request_id();
+        let subscribe_deltas = Subscribe {
+            request_id: request_id2,
+            query_set_id: QuerySetId::new(request_id2),
+            query_strings: vec!["SELECT * FROM checkbox_delta".into()].into_boxed_slice(),
+        };
+        self.send_message(&ClientMessage::Subscribe(subscribe_deltas));
     }
 
     /// Send BSATN-encoded reducer call
@@ -453,19 +460,18 @@ fn process_query_rows(rows: &QueryRows) {
     for table_rows in rows.tables.iter() {
         let table_name: &str = &table_rows.table;
 
-        if table_name != "checkbox_chunk" {
-            continue;
-        }
-
-        for row_bytes in &table_rows.rows {
-            if let Some(chunk) = parse_checkbox_chunk(&row_bytes) {
-                send_to_main_thread(WorkerToMain::ChunkInserted {
-                    chunk_id: chunk.chunk_id,
-                    state: chunk.state,
-                    version: chunk.version,
-                });
+        if table_name == "checkbox_chunk" {
+            for row_bytes in &table_rows.rows {
+                if let Some(chunk) = parse_checkbox_chunk(&row_bytes) {
+                    send_to_main_thread(WorkerToMain::ChunkInserted {
+                        chunk_id: chunk.chunk_id,
+                        state: chunk.state,
+                        version: chunk.version,
+                    });
+                }
             }
         }
+        // Ignore initial checkbox_delta rows — we only care about live inserts
     }
 }
 
@@ -473,15 +479,18 @@ fn process_query_rows(rows: &QueryRows) {
 fn process_table_update(table: &TableUpdate) {
     let table_name: &str = &table.table_name;
 
-    // We only care about checkbox_chunk table
-    if table_name != "checkbox_chunk" {
-        return;
+    if table_name == "checkbox_chunk" {
+        process_chunk_table_update(table);
+    } else if table_name == "checkbox_delta" {
+        process_delta_table_update(table);
     }
+}
 
+/// Process checkbox_chunk table updates (full chunk state)
+fn process_chunk_table_update(table: &TableUpdate) {
     for rows in table.rows.iter() {
         match rows {
             TableUpdateRows::PersistentTable(persistent) => {
-                // Process inserts
                 for row_bytes in &persistent.inserts {
                     if let Some(chunk) = parse_checkbox_chunk(&row_bytes) {
                         send_to_main_thread(WorkerToMain::ChunkInserted {
@@ -491,20 +500,67 @@ fn process_table_update(table: &TableUpdate) {
                         });
                     }
                 }
+            }
+            _ => {}
+        }
+    }
+}
 
-                // Process deletes (not typically used in our app)
-                for row_bytes in &persistent.deletes {
-                    if let Some(chunk) = parse_checkbox_chunk(&row_bytes) {
-                        web_sys::console::log_1(
-                            &format!("Chunk deleted: {}", chunk.chunk_id).into()
-                        );
+/// Process checkbox_delta table updates — send as lightweight binary to main thread.
+/// Binary format: [tag: u8 = 3] [N × 16 bytes: chunk_id(8) + cell_offset(4) + r + g + b + checked]
+fn process_delta_table_update(table: &TableUpdate) {
+    let mut deltas: Vec<u8> = Vec::new();
+    let mut count = 0u32;
+
+    for rows in table.rows.iter() {
+        match rows {
+            TableUpdateRows::PersistentTable(persistent) => {
+                for row_bytes in &persistent.inserts {
+                    if let Some(delta) = parse_checkbox_delta(&row_bytes) {
+                        deltas.extend_from_slice(&delta.chunk_id.to_le_bytes());
+                        deltas.extend_from_slice(&delta.cell_offset.to_le_bytes());
+                        deltas.push(delta.r);
+                        deltas.push(delta.g);
+                        deltas.push(delta.b);
+                        deltas.push(if delta.checked { 1 } else { 0 });
+                        count += 1;
                     }
                 }
             }
-            TableUpdateRows::EventTable(_) => {
-                // Not applicable for checkbox_chunk
-            }
+            _ => {}
         }
+    }
+
+    if count == 0 {
+        return;
+    }
+
+    // Send as binary: [tag=3] [count: u32] [deltas...]
+    let scope = js_sys::global()
+        .dyn_into::<DedicatedWorkerGlobalScope>()
+        .expect("not in worker");
+
+    let total_len = 1 + 4 + deltas.len();
+    let buffer = js_sys::ArrayBuffer::new(total_len as u32);
+    let view = js_sys::Uint8Array::new(&buffer);
+
+    let mut header = [0u8; 5];
+    header[0] = 3; // tag for DeltaBatch
+    header[1..5].copy_from_slice(&count.to_le_bytes());
+    view.set(&js_sys::Uint8Array::from(&header[..]), 0);
+
+    let delta_view = unsafe { js_sys::Uint8Array::view(&deltas) };
+    view.set(&delta_view, 5);
+
+    let transfer = js_sys::Array::new();
+    transfer.push(&buffer);
+    scope.post_message_with_transfer(&buffer, &transfer).expect("postMessage failed");
+
+    if count > 100 {
+        web_sys::console::log_1(&format!(
+            "[PERF worker->main] delta_batch {} deltas ({}KB)",
+            count, deltas.len() / 1024
+        ).into());
     }
 }
 
@@ -553,6 +609,52 @@ struct CheckboxChunk {
     chunk_id: i64,
     state: Vec<u8>,
     version: u64,
+}
+
+/// Parse a single CheckboxDelta from BSATN
+/// Fields: seq(u64) + chunk_id(i64) + cell_offset(u32) + r(u8) + g(u8) + b(u8) + checked(bool)
+fn parse_checkbox_delta(bytes: &[u8]) -> Option<CheckboxDelta> {
+    if bytes.len() < 8 + 8 + 4 + 1 + 1 + 1 + 1 {
+        return None;
+    }
+    let mut reader = bytes;
+
+    // seq: u64
+    let seq = u64::from_le_bytes(reader[..8].try_into().ok()?);
+    reader = &reader[8..];
+
+    // chunk_id: i64
+    let chunk_id = i64::from_le_bytes(reader[..8].try_into().ok()?);
+    reader = &reader[8..];
+
+    // cell_offset: u32
+    let cell_offset = u32::from_le_bytes(reader[..4].try_into().ok()?);
+    reader = &reader[4..];
+
+    let r = reader[0];
+    let g = reader[1];
+    let b = reader[2];
+    let checked = reader[3] != 0;
+
+    Some(CheckboxDelta {
+        seq,
+        chunk_id,
+        cell_offset,
+        r,
+        g,
+        b,
+        checked,
+    })
+}
+
+struct CheckboxDelta {
+    seq: u64,
+    chunk_id: i64,
+    cell_offset: u32,
+    r: u8,
+    g: u8,
+    b: u8,
+    checked: bool,
 }
 
 /// Handle WebSocket close
