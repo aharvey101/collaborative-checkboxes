@@ -113,6 +113,29 @@ impl WorkerClient {
             });
 
             send_to_main_thread(WorkerToMain::Connected);
+
+            // Schedule periodic delta cleanup (every 30 seconds)
+            let cleanup_closure = Closure::wrap(Box::new(move || {
+                CLIENT.with(|c| {
+                    if let Some(client) = c.borrow().as_ref() {
+                        let mut client_mut = client.borrow_mut();
+                        // Encode max_age_ms argument: 30000u64 as BSATN (little-endian u64)
+                        let args = 30000u64.to_le_bytes().to_vec();
+                        client_mut.call_reducer("cleanup_old_deltas", &args);
+                    }
+                });
+            }) as Box<dyn FnMut()>);
+
+            let scope = js_sys::global()
+                .dyn_into::<DedicatedWorkerGlobalScope>()
+                .expect("not in worker");
+            scope
+                .set_interval_with_callback_and_timeout_and_arguments_0(
+                    cleanup_closure.as_ref().unchecked_ref(),
+                    30_000,
+                )
+                .ok();
+            cleanup_closure.forget();
         }) as Box<dyn FnMut(_)>);
 
         ws.set_onopen(Some(onopen.as_ref().unchecked_ref()));
