@@ -84,6 +84,7 @@ pub fn App() -> impl IntoView {
             if !initialized.get() {
                 initialized.set(true);
 
+                let subscribed = std::cell::Cell::new(false);
                 let result = init_worker(move |msg| {
                     web_sys::console::log_1(&format!("[Main] Received message from worker: {:?}", msg).into());
                     match msg {
@@ -92,9 +93,12 @@ pub fn App() -> impl IntoView {
                             state.status.set(crate::state::ConnectionStatus::Connected);
                             state.status_message.set("Connected".to_string());
 
-                            // Subscribe to checkbox chunks
-                            web_sys::console::log_1(&"[Main] Sending Subscribe message to worker".into());
-                            send_to_worker(MainToWorker::Subscribe { chunk_ids: vec![] });
+                            // Subscribe to checkbox chunks (only once)
+                            if !subscribed.get() {
+                                subscribed.set(true);
+                                web_sys::console::log_1(&"[Main] Sending Subscribe message to worker".into());
+                                send_to_worker(MainToWorker::Subscribe { chunk_ids: vec![] });
+                            }
                         }
                         WorkerToMain::ChunkInserted { chunk_id, state: chunk_state, version } => {
                             let t0 = js_sys::Date::now();

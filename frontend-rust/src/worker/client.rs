@@ -112,8 +112,7 @@ impl WorkerClient {
                     client.borrow_mut().reconnect_attempt = 0;
                 }
             });
-            // Note: don't send Connected here — wait for InitialConnection
-            // message from SpacetimeDB to avoid double-subscribe
+            send_to_main_thread(WorkerToMain::Connected);
         }) as Box<dyn FnMut(_)>);
 
         ws.set_onopen(Some(onopen.as_ref().unchecked_ref()));
