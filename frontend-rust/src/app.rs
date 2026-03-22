@@ -85,7 +85,17 @@ pub fn App() -> impl IntoView {
                 initialized.set(true);
 
                 let result = init_worker(move |msg| {
-                    web_sys::console::log_1(&format!("[Main] Received message from worker: {:?}", msg).into());
+                    // Log message type only — chunk messages contain 4MB state arrays
+                    match &msg {
+                        WorkerToMain::ChunkInserted { chunk_id, version, .. } =>
+                            web_sys::console::log_1(&format!("[Main] Received ChunkInserted: chunk_id={}, version={}", chunk_id, version).into()),
+                        WorkerToMain::ChunkUpdated { chunk_id, version, .. } =>
+                            web_sys::console::log_1(&format!("[Main] Received ChunkUpdated: chunk_id={}, version={}", chunk_id, version).into()),
+                        WorkerToMain::DeltaUpdate { ref data } =>
+                            web_sys::console::log_1(&format!("[Main] Received DeltaUpdate: {} bytes ({} entries)", data.len(), data.len() / 16).into()),
+                        other =>
+                            web_sys::console::log_1(&format!("[Main] Received message from worker: {:?}", other).into()),
+                    }
                     match msg {
                         WorkerToMain::Connected => {
                             web_sys::console::log_1(&"[Main] Worker connected!".into());
@@ -122,6 +132,34 @@ pub fn App() -> impl IntoView {
                                 });
                                 state.render_version.update(|v| *v += 1);
                             }
+                        }
+                        WorkerToMain::DeltaUpdate { data } => {
+                            state.loaded_chunks.update(|chunks| {
+                                for entry in data.chunks_exact(16) {
+                                    let chunk_id = i64::from_le_bytes(
+                                        entry[0..8].try_into().unwrap(),
+                                    );
+                                    // Skip doom chunks — optimistic local frames are authoritative
+                                    if crate::doom::is_doom_chunk(chunk_id) {
+                                        continue;
+                                    }
+                                    let cell_offset = u32::from_le_bytes(
+                                        entry[8..12].try_into().unwrap(),
+                                    );
+                                    let r = entry[12];
+                                    let g = entry[13];
+                                    let b = entry[14];
+                                    let checked = entry[15] != 0;
+                                    if let Some(chunk_data) = chunks.get_mut(&chunk_id) {
+                                        crate::db::set_checkbox(
+                                            chunk_data,
+                                            cell_offset as usize,
+                                            r, g, b, checked,
+                                        );
+                                    }
+                                }
+                            });
+                            state.render_version.update(|v| *v += 1);
                         }
                         WorkerToMain::FatalError { message } => {
                             state.status.set(crate::state::ConnectionStatus::Error);

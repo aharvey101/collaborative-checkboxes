@@ -35,25 +35,34 @@ where
     web_sys::console::log_1(&"[Main] Worker created successfully".into());
 
     // Set up message handler
+    // Supports two formats:
+    //   1. JSON string (for small messages: Connected, FatalError)
+    //   2. JS object with ArrayBuffer (for chunk data: ChunkInserted, ChunkUpdated)
     let callback = Closure::wrap(Box::new(move |event: MessageEvent| {
-        // Deserialize message from worker
-        let msg: WorkerToMain = match event.data().as_string() {
-            Some(json_str) => match serde_json::from_str(&json_str) {
-                Ok(m) => m,
+        let data = event.data();
+
+        // Try JSON string first (small messages)
+        if let Some(json_str) = data.as_string() {
+            match serde_json::from_str::<WorkerToMain>(&json_str) {
+                Ok(msg) => on_message(msg),
                 Err(e) => {
                     web_sys::console::error_1(
                         &format!("Failed to deserialize worker message: {:?}", e).into(),
                     );
-                    return;
                 }
-            },
-            None => {
-                web_sys::console::error_1(&"Received non-string message from worker".into());
+            }
+            return;
+        }
+
+        // Try JS object with ArrayBuffer (chunk data)
+        if data.is_object() {
+            if let Some(msg) = parse_binary_chunk_message(&data) {
+                on_message(msg);
                 return;
             }
-        };
+        }
 
-        on_message(msg);
+        web_sys::console::error_1(&"Received unknown message format from worker".into());
     }) as Box<dyn FnMut(_)>);
 
     worker.set_onmessage(Some(callback.as_ref().unchecked_ref()));
@@ -89,6 +98,41 @@ pub fn send_raw_json(json: &str) {
             let _ = worker.post_message(&value);
         }
     });
+}
+
+/// Parse a binary message (JS object with ArrayBuffer)
+/// Supports chunk messages and delta updates
+fn parse_binary_chunk_message(data: &JsValue) -> Option<WorkerToMain> {
+    let msg_type = js_sys::Reflect::get(data, &"type".into())
+        .ok()?
+        .as_string()?;
+
+    // DeltaUpdate has a different shape: { type, data: ArrayBuffer }
+    if msg_type == "DeltaUpdate" {
+        let data_val = js_sys::Reflect::get(data, &"data".into()).ok()?;
+        let array_buffer = data_val.dyn_into::<js_sys::ArrayBuffer>().ok()?;
+        let uint8_array = js_sys::Uint8Array::new(&array_buffer);
+        return Some(WorkerToMain::DeltaUpdate { data: uint8_array.to_vec() });
+    }
+
+    // Chunk messages: { type, chunk_id, version, state: ArrayBuffer }
+    let chunk_id = js_sys::Reflect::get(data, &"chunk_id".into())
+        .ok()?
+        .as_f64()? as i64;
+    let version = js_sys::Reflect::get(data, &"version".into())
+        .ok()?
+        .as_f64()? as u64;
+    let state_val = js_sys::Reflect::get(data, &"state".into()).ok()?;
+
+    let array_buffer = state_val.dyn_into::<js_sys::ArrayBuffer>().ok()?;
+    let uint8_array = js_sys::Uint8Array::new(&array_buffer);
+    let state = uint8_array.to_vec();
+
+    match msg_type.as_str() {
+        "ChunkInserted" => Some(WorkerToMain::ChunkInserted { chunk_id, state, version }),
+        "ChunkUpdated" => Some(WorkerToMain::ChunkUpdated { chunk_id, state, version }),
+        _ => None,
+    }
 }
 
 /// Terminate worker
