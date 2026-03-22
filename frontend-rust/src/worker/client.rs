@@ -11,8 +11,9 @@ use spacetimedb_client_api_messages::websocket::{
     common::QuerySetId,
     v2::{
         CallReducer, CallReducerFlags, ClientMessage, InitialConnection, QueryRows,
-        ReducerResult, ServerMessage, Subscribe, SubscribeApplied, SubscriptionError,
-        TableUpdate, TableUpdateRows, TransactionUpdate, Unsubscribe, UnsubscribeFlags,
+        ReducerOutcome, ReducerResult, ServerMessage, Subscribe, SubscribeApplied,
+        SubscriptionError, TableUpdate, TableUpdateRows, TransactionUpdate, Unsubscribe,
+        UnsubscribeFlags,
     },
 };
 use spacetimedb_lib::bsatn;
@@ -111,8 +112,8 @@ impl WorkerClient {
                     client.borrow_mut().reconnect_attempt = 0;
                 }
             });
-
-            send_to_main_thread(WorkerToMain::Connected);
+            // Note: don't send Connected here — wait for InitialConnection
+            // message from SpacetimeDB to avoid double-subscribe
         }) as Box<dyn FnMut(_)>);
 
         ws.set_onopen(Some(onopen.as_ref().unchecked_ref()));
@@ -475,12 +476,22 @@ fn handle_subscription_error(err: SubscriptionError) {
     web_sys::console::error_1(&error_msg.clone().into());
 }
 
-/// Handle reducer result
+/// Handle reducer result — only log success/failure, not the full payload
+/// (which can be 100s of MB for batch_update_checkboxes)
 fn handle_reducer_result(result: ReducerResult) {
+    let ok = matches!(result.result, ReducerOutcome::Ok(_) | ReducerOutcome::OkEmpty);
     web_sys::console::log_1(
-        &format!("Reducer result: request_id={} success={:?}",
-                 result.request_id, result.result).into()
+        &format!("Reducer result: request_id={} ok={}", result.request_id, ok).into()
     );
+
+    // Process table updates from successful reducer calls
+    if let ReducerOutcome::Ok(reducer_ok) = result.result {
+        for query_set in reducer_ok.transaction_update.query_sets.iter() {
+            for table in query_set.tables.iter() {
+                process_table_update(table);
+            }
+        }
+    }
 }
 
 /// Process query rows (initial subscription data)
