@@ -180,6 +180,19 @@ pub struct CheckboxChunk {
     pub version: u64,   // For tracking updates
 }
 
+/// Stores batched checkbox updates as packed binary blobs for efficient live sync.
+/// Each entry in `data` is 16 bytes: chunk_id(8) + cell_offset(4) + r + g + b + checked.
+/// Clients subscribe to this table for incremental updates instead of receiving
+/// full 4MB chunk rows on every change.
+#[table(accessor = checkbox_delta, public)]
+pub struct CheckboxDelta {
+    #[auto_inc]
+    #[primary_key]
+    pub id: u64,
+    pub data: Vec<u8>,
+    pub timestamp: u64,
+}
+
 /// Set a checkbox with color at the given position
 fn set_checkbox(data: &mut [u8], cell_index: usize, r: u8, g: u8, b: u8, checked: bool) {
     let byte_idx = cell_index * 4;
@@ -202,22 +215,33 @@ pub fn update_checkbox(
     b: u8,
     checked: bool,
 ) {
-    // Try to find existing chunk by primary key
     if let Some(mut row) = ctx.db.checkbox_chunk().chunk_id().find(chunk_id) {
         set_checkbox(&mut row.state, cell_offset as usize, r, g, b, checked);
         row.version += 1;
         ctx.db.checkbox_chunk().chunk_id().update(row);
-        return;
+    } else {
+        let mut new_chunk = CheckboxChunk {
+            chunk_id,
+            state: vec![0u8; CHUNK_DATA_SIZE],
+            version: 0,
+        };
+        set_checkbox(&mut new_chunk.state, cell_offset as usize, r, g, b, checked);
+        ctx.db.checkbox_chunk().insert(new_chunk);
     }
 
-    // If chunk doesn't exist, create it and set the checkbox
-    let mut new_chunk = CheckboxChunk {
-        chunk_id,
-        state: vec![0u8; CHUNK_DATA_SIZE],
-        version: 0,
-    };
-    set_checkbox(&mut new_chunk.state, cell_offset as usize, r, g, b, checked);
-    ctx.db.checkbox_chunk().insert(new_chunk);
+    // Emit delta for live subscribers
+    let mut delta_data = Vec::with_capacity(16);
+    delta_data.extend_from_slice(&chunk_id.to_le_bytes());
+    delta_data.extend_from_slice(&cell_offset.to_le_bytes());
+    delta_data.push(r);
+    delta_data.push(g);
+    delta_data.push(b);
+    delta_data.push(if checked { 1 } else { 0 });
+    ctx.db.checkbox_delta().insert(CheckboxDelta {
+        id: 0,
+        data: delta_data,
+        timestamp: (ctx.timestamp.to_micros_since_unix_epoch() / 1000) as u64,
+    });
 }
 
 /// Batch update multiple checkboxes at once (with colors)
@@ -226,20 +250,24 @@ pub fn update_checkbox(
 pub fn batch_update_checkboxes(ctx: &ReducerContext, updates: Vec<CheckboxUpdate>) {
     use std::collections::HashMap;
 
-    // Group updates by chunk_id
-    let mut chunk_updates: HashMap<i64, Vec<(u32, u8, u8, u8, bool)>> = HashMap::new();
+    // Build delta data BEFORE consuming updates
+    let mut delta_data = Vec::with_capacity(updates.len() * 16);
+    for update in &updates {
+        delta_data.extend_from_slice(&update.chunk_id.to_le_bytes());
+        delta_data.extend_from_slice(&update.cell_offset.to_le_bytes());
+        delta_data.push(update.r);
+        delta_data.push(update.g);
+        delta_data.push(update.b);
+        delta_data.push(if update.checked { 1 } else { 0 });
+    }
 
+    let mut chunk_updates: HashMap<i64, Vec<(u32, u8, u8, u8, bool)>> = HashMap::new();
     for update in updates {
         chunk_updates.entry(update.chunk_id).or_default().push((
-            update.cell_offset,
-            update.r,
-            update.g,
-            update.b,
-            update.checked,
+            update.cell_offset, update.r, update.g, update.b, update.checked,
         ));
     }
 
-    // Apply all updates per chunk
     for (chunk_id, updates) in chunk_updates {
         if let Some(mut row) = ctx.db.checkbox_chunk().chunk_id().find(chunk_id) {
             for (cell_offset, r, g, b, checked) in updates {
@@ -248,7 +276,6 @@ pub fn batch_update_checkboxes(ctx: &ReducerContext, updates: Vec<CheckboxUpdate
             row.version += 1;
             ctx.db.checkbox_chunk().chunk_id().update(row);
         } else {
-            // Create new chunk
             let mut new_chunk = CheckboxChunk {
                 chunk_id,
                 state: vec![0u8; CHUNK_DATA_SIZE],
@@ -259,6 +286,14 @@ pub fn batch_update_checkboxes(ctx: &ReducerContext, updates: Vec<CheckboxUpdate
             }
             ctx.db.checkbox_chunk().insert(new_chunk);
         }
+    }
+
+    if !delta_data.is_empty() {
+        ctx.db.checkbox_delta().insert(CheckboxDelta {
+            id: 0,
+            data: delta_data,
+            timestamp: (ctx.timestamp.to_micros_since_unix_epoch() / 1000) as u64,
+        });
     }
 }
 
@@ -285,6 +320,24 @@ pub fn clear_all_checkboxes(ctx: &ReducerContext) {
 
     for chunk_id in chunk_ids {
         ctx.db.checkbox_chunk().chunk_id().delete(chunk_id);
+    }
+}
+
+/// Clean up old delta rows to prevent unbounded table growth.
+/// Call periodically with max_age_ms (e.g., 30000 for 30 seconds).
+#[reducer]
+pub fn cleanup_old_deltas(ctx: &ReducerContext, max_age_ms: u64) {
+    let now_ms = (ctx.timestamp.to_micros_since_unix_epoch() / 1000) as u64;
+    let cutoff = now_ms.saturating_sub(max_age_ms);
+    let old_ids: Vec<u64> = ctx
+        .db
+        .checkbox_delta()
+        .iter()
+        .filter(|d| d.timestamp < cutoff)
+        .map(|d| d.id)
+        .collect();
+    for id in old_ids {
+        ctx.db.checkbox_delta().id().delete(id);
     }
 }
 
