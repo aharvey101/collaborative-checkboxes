@@ -54,6 +54,11 @@ pub enum WorkerToMain {
         version: u64,
     },
 
+    /// Incremental update from checkbox_delta table
+    DeltaUpdate {
+        data: Vec<u8>,
+    },
+
     /// Successfully connected
     Connected,
 
