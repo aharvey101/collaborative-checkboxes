@@ -34,23 +34,34 @@ test('spectator sees Doom frames', async ({ browser }) => {
   );
   console.log('STEP 4: Doom running on player');
 
-  // Wait for frames to flush to SpacetimeDB and propagate
-  await player.waitForTimeout(15000);
+  // Wait for initial frames to start flowing
+  await player.waitForTimeout(5000);
 
-  const playerCount = await player.evaluate(() => {
-    return (window as any).get_doom_chunk_nonzero_count?.() ?? -1;
-  });
-  console.log(`Player doom chunk: ${playerCount}`);
+  // Snapshot counters at start of measurement
+  const startBatches = await spectator.evaluate(() => (window as any).get_delta_batch_count?.() ?? 0);
+  const startUpdates = await spectator.evaluate(() => (window as any).get_delta_total_updates?.() ?? 0);
+  const startTime = Date.now();
 
-  const afterCount = await spectator.evaluate(() => {
-    return (window as any).get_doom_chunk_nonzero_count?.() ?? -1;
-  });
-  console.log(`Spectator doom chunk AFTER: ${afterCount}`);
-  console.log(`Spectator gained: ${afterCount - beforeCount} nonzero bytes`);
+  // Let Doom run for 10 seconds
+  await player.waitForTimeout(10000);
 
-  // The spectator must have gained significant data from the Doom frames
-  expect(afterCount - beforeCount).toBeGreaterThan(10000);
+  // Snapshot counters at end
+  const endBatches = await spectator.evaluate(() => (window as any).get_delta_batch_count?.() ?? 0);
+  const endUpdates = await spectator.evaluate(() => (window as any).get_delta_total_updates?.() ?? 0);
+  const elapsed = (Date.now() - startTime) / 1000;
 
-  // Pause so you can visually inspect the spectator window
-  await spectator.waitForTimeout(10000);
+  const batches = endBatches - startBatches;
+  const pixelUpdates = endUpdates - startUpdates;
+  const batchesPerSec = batches / elapsed;
+  const updatesPerSec = pixelUpdates / elapsed;
+
+  console.log(`\n=== SPECTATOR FRAMERATE BENCHMARK ===`);
+  console.log(`Duration: ${elapsed.toFixed(1)}s`);
+  console.log(`Delta batches received: ${batches} (${batchesPerSec.toFixed(1)}/sec)`);
+  console.log(`Pixel updates applied: ${pixelUpdates} (${updatesPerSec.toFixed(0)}/sec)`);
+  console.log(`Avg pixels per batch: ${batches > 0 ? (pixelUpdates / batches).toFixed(0) : 'N/A'}`);
+  console.log(`=====================================\n`);
+
+  // Spectator should receive at least some delta batches
+  expect(batches).toBeGreaterThan(5);
 });

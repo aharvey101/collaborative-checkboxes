@@ -111,6 +111,9 @@ window.DoomMode = (function() {
         // Store current frame for next delta
         previousFrame = colorData;
 
+        // Skip empty deltas
+        if (delta.indices.length === 0) return;
+
         // Convert to JS arrays
         const indices = new Uint32Array(delta.indices);
 
