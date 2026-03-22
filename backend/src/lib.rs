@@ -1,30 +1,13 @@
-// SpacetimeDB backend for collaborative checkboxes - v5.0 (delta-based sync)
+// SpacetimeDB backend for Infinite Drawing
 
 use spacetimedb::{reducer, table, ReducerContext, SpacetimeType, Table};
 
-/// Chunk size: 1 million checkboxes per chunk (1000x1000)
-const CHECKBOXES_PER_CHUNK: usize = 1_000_000;
+/// Chunk size: 1 million pixels per chunk (1000x1000)
+const CHUNK_DATA_SIZE: usize = 4_000_000; // 4 bytes per pixel (R, G, B, checked)
 
-/// Legacy chunk data size (4 bytes per checkbox)
-const CHUNK_DATA_SIZE: usize = 4_000_000;
-
-// === Chunk Addressing ===
-
-fn chunk_coords_to_id(x: i32, y: i32) -> i64 {
-    ((x as i64) << 32) | ((y as u32) as i64)
-}
-
-fn chunk_id_to_coords(id: i64) -> (i32, i32) {
-    let x = (id >> 32) as i32;
-    let y = id as i32;
-    (x, y)
-}
-
-// === Data Types ===
-
-/// A single checkbox update for batch operations (with color)
+/// A single pixel update for batch operations
 #[derive(SpacetimeType)]
-pub struct CheckboxUpdate {
+pub struct PixelUpdate {
     pub chunk_id: i64,
     pub cell_offset: u32,
     pub r: u8,
@@ -33,47 +16,18 @@ pub struct CheckboxUpdate {
     pub checked: bool,
 }
 
-/// Stores full checkbox state per chunk (for initial load / persistence).
-/// Subscribers use this for the initial snapshot only.
-#[table(accessor = checkbox_chunk, public)]
-pub struct CheckboxChunk {
+/// Stores full pixel state per chunk. Each chunk is 1000x1000 pixels.
+/// State is a 4MB RGBA blob. Subscribers receive updates via SpacetimeDB.
+#[table(accessor = chunk, public)]
+pub struct Chunk {
     #[primary_key]
     pub chunk_id: i64,
-    pub state: Vec<u8>, // 4MB blob for 1M checkboxes with colors
+    pub state: Vec<u8>,
     pub version: u64,
 }
 
-/// Lightweight delta row for real-time sync.
-/// Each row represents a single cell change. Subscribers get these as
-/// small (~20 byte) inserts instead of full 4MB chunk retransmissions.
-/// Rows are ephemeral — cleaned up periodically by the cleanup reducer.
-#[table(accessor = checkbox_delta, public)]
-pub struct CheckboxDelta {
-    #[auto_inc]
-    #[primary_key]
-    pub seq: u64,
-    pub chunk_id: i64,
-    pub cell_offset: u32,
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub checked: bool,
-}
-
-/// Packed frame for real-time sync. One row = one batch of updates.
-/// Contains pre-packed binary data: [N × 16 bytes per update]
-/// Each update: [chunk_id: i64 LE] [cell_offset: u32 LE] [r] [g] [b] [checked]
-/// SpacetimeDB sends one row insert instead of 50K individual delta rows.
-#[table(accessor = checkbox_frame, public)]
-pub struct CheckboxFrame {
-    #[auto_inc]
-    #[primary_key]
-    pub seq: u64,
-    pub data: Vec<u8>,  // packed updates, 16 bytes each
-}
-
-/// Set a checkbox with color at the given position
-fn set_checkbox(data: &mut [u8], cell_index: usize, r: u8, g: u8, b: u8, checked: bool) {
+/// Set a pixel at the given position
+fn set_pixel(data: &mut [u8], cell_index: usize, r: u8, g: u8, b: u8, checked: bool) {
     let byte_idx = cell_index * 4;
     if byte_idx + 3 < data.len() {
         data[byte_idx] = r;
@@ -83,9 +37,9 @@ fn set_checkbox(data: &mut [u8], cell_index: usize, r: u8, g: u8, b: u8, checked
     }
 }
 
-/// Update a single checkbox — write packed frame only.
+/// Update a single pixel
 #[reducer]
-pub fn update_checkbox(
+pub fn update_pixel(
     ctx: &ReducerContext,
     chunk_id: i64,
     cell_offset: u32,
@@ -94,170 +48,58 @@ pub fn update_checkbox(
     b: u8,
     checked: bool,
 ) {
-    let mut packed = Vec::with_capacity(16);
-    packed.extend_from_slice(&chunk_id.to_le_bytes());
-    packed.extend_from_slice(&cell_offset.to_le_bytes());
-    packed.push(r);
-    packed.push(g);
-    packed.push(b);
-    packed.push(if checked { 1 } else { 0 });
-
-    ctx.db.checkbox_frame().insert(CheckboxFrame {
-        seq: 0,
-        data: packed,
-    });
-}
-
-/// Batch update: pack into a single frame row.
-/// No individual delta rows — snapshot reads from checkbox_frame directly.
-#[reducer]
-pub fn batch_update_checkboxes(ctx: &ReducerContext, updates: Vec<CheckboxUpdate>) {
-    let mut packed = Vec::with_capacity(updates.len() * 16);
-    for update in &updates {
-        packed.extend_from_slice(&update.chunk_id.to_le_bytes());
-        packed.extend_from_slice(&update.cell_offset.to_le_bytes());
-        packed.push(update.r);
-        packed.push(update.g);
-        packed.push(update.b);
-        packed.push(if update.checked { 1 } else { 0 });
+    if let Some(mut row) = ctx.db.chunk().chunk_id().find(chunk_id) {
+        set_pixel(&mut row.state, cell_offset as usize, r, g, b, checked);
+        row.version += 1;
+        ctx.db.chunk().chunk_id().update(row);
+    } else {
+        let mut state = vec![0u8; CHUNK_DATA_SIZE];
+        set_pixel(&mut state, cell_offset as usize, r, g, b, checked);
+        ctx.db.chunk().insert(Chunk {
+            chunk_id,
+            state,
+            version: 1,
+        });
     }
-
-    ctx.db.checkbox_frame().insert(CheckboxFrame {
-        seq: 0,
-        data: packed,
-    });
 }
 
-/// Snapshot: apply all pending frames to the full chunk state.
-/// Reads packed data from checkbox_frame, applies to checkbox_chunk.
-/// Only touches checkbox_chunk — spectators unsubscribe from this.
+/// Batch update multiple pixels at once
 #[reducer]
-pub fn snapshot_chunks(ctx: &ReducerContext) {
+pub fn batch_update(ctx: &ReducerContext, updates: Vec<PixelUpdate>) {
     use std::collections::HashMap;
 
-    let frames: Vec<_> = ctx.db.checkbox_frame().iter().collect();
-    if frames.is_empty() {
-        return;
+    let mut by_chunk: HashMap<i64, Vec<(u32, u8, u8, u8, bool)>> = HashMap::new();
+    for u in updates {
+        by_chunk.entry(u.chunk_id).or_default().push((u.cell_offset, u.r, u.g, u.b, u.checked));
     }
 
-    // Parse all frames and group updates by chunk_id
-    let mut chunk_updates: HashMap<i64, Vec<(u32, u8, u8, u8, bool)>> = HashMap::new();
-    for frame in &frames {
-        let data = &frame.data;
-        let count = data.len() / 16;
-        for i in 0..count {
-            let off = i * 16;
-            if off + 16 > data.len() { break; }
-            let chunk_id = i64::from_le_bytes(data[off..off+8].try_into().unwrap());
-            let cell_offset = u32::from_le_bytes(data[off+8..off+12].try_into().unwrap());
-            let r = data[off + 12];
-            let g = data[off + 13];
-            let b = data[off + 14];
-            let checked = data[off + 15] != 0;
-            chunk_updates.entry(chunk_id).or_default().push((cell_offset, r, g, b, checked));
-        }
-    }
-
-    // Apply to chunk state
-    for (chunk_id, cell_updates) in chunk_updates {
-        if let Some(mut row) = ctx.db.checkbox_chunk().chunk_id().find(chunk_id) {
-            for (cell_offset, r, g, b, checked) in cell_updates {
-                set_checkbox(&mut row.state, cell_offset as usize, r, g, b, checked);
+    for (chunk_id, pixels) in by_chunk {
+        if let Some(mut row) = ctx.db.chunk().chunk_id().find(chunk_id) {
+            for (offset, r, g, b, checked) in pixels {
+                set_pixel(&mut row.state, offset as usize, r, g, b, checked);
             }
             row.version += 1;
-            ctx.db.checkbox_chunk().chunk_id().update(row);
+            ctx.db.chunk().chunk_id().update(row);
         } else {
-            let mut new_chunk = CheckboxChunk {
-                chunk_id,
-                state: vec![0u8; CHUNK_DATA_SIZE],
-                version: 0,
-            };
-            for (cell_offset, r, g, b, checked) in cell_updates {
-                set_checkbox(&mut new_chunk.state, cell_offset as usize, r, g, b, checked);
+            let mut state = vec![0u8; CHUNK_DATA_SIZE];
+            for (offset, r, g, b, checked) in pixels {
+                set_pixel(&mut state, offset as usize, r, g, b, checked);
             }
-            ctx.db.checkbox_chunk().insert(new_chunk);
+            ctx.db.chunk().insert(Chunk {
+                chunk_id,
+                state,
+                version: 1,
+            });
         }
     }
 }
 
-/// Clean up old frames after snapshot has processed them.
+/// Clear all data
 #[reducer]
-pub fn cleanup_old_deltas(ctx: &ReducerContext, max_seq_to_delete: u64) {
-    let old_frame_seqs: Vec<u64> = ctx
-        .db
-        .checkbox_frame()
-        .iter()
-        .filter(|f| f.seq <= max_seq_to_delete)
-        .map(|f| f.seq)
-        .collect();
-    for seq in old_frame_seqs {
-        ctx.db.checkbox_frame().seq().delete(seq);
-    }
-}
-
-/// Add a new chunk
-#[reducer]
-pub fn add_chunk(ctx: &ReducerContext, chunk_id: i64) {
-    let new_chunk = CheckboxChunk {
-        chunk_id,
-        state: vec![0u8; CHUNK_DATA_SIZE],
-        version: 0,
-    };
-    ctx.db.checkbox_chunk().insert(new_chunk);
-}
-
-/// Clean up old deltas to prevent the table from growing unbounded.
-/// Call periodically (e.g., every 30 seconds) from a client or scheduled task.
-/// Keeps only the most recent `keep_count` deltas.
-#[reducer]
-pub fn cleanup_deltas(ctx: &ReducerContext, keep_count: u64) {
-    // Find the max seq
-    let max_seq = ctx.db.checkbox_delta().iter().map(|d| d.seq).max().unwrap_or(0);
-
-    if max_seq <= keep_count {
-        return;
-    }
-
-    let cutoff = max_seq - keep_count;
-
-    // Delete old deltas
-    let old_seqs: Vec<u64> = ctx
-        .db
-        .checkbox_delta()
-        .iter()
-        .filter(|d| d.seq < cutoff)
-        .map(|d| d.seq)
-        .collect();
-
-    for seq in old_seqs {
-        ctx.db.checkbox_delta().seq().delete(seq);
-    }
-}
-
-/// Clear all checkbox data (useful for testing)
-#[reducer]
-pub fn clear_all_checkboxes(ctx: &ReducerContext) {
-    let chunk_ids: Vec<i64> = ctx
-        .db
-        .checkbox_chunk()
-        .iter()
-        .map(|row| row.chunk_id)
-        .collect();
-
-    for chunk_id in chunk_ids {
-        ctx.db.checkbox_chunk().chunk_id().delete(chunk_id);
-    }
-
-    // Also clear deltas
-    let delta_seqs: Vec<u64> = ctx
-        .db
-        .checkbox_delta()
-        .iter()
-        .map(|d| d.seq)
-        .collect();
-
-    for seq in delta_seqs {
-        ctx.db.checkbox_delta().seq().delete(seq);
+pub fn clear_all(ctx: &ReducerContext) {
+    let ids: Vec<i64> = ctx.db.chunk().iter().map(|r| r.chunk_id).collect();
+    for id in ids {
+        ctx.db.chunk().chunk_id().delete(id);
     }
 }
 
@@ -266,35 +108,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_set_checkbox() {
+    fn test_set_pixel() {
         let mut data = vec![0u8; 40];
-        set_checkbox(&mut data, 0, 255, 0, 0, true);
+        set_pixel(&mut data, 0, 255, 0, 0, true);
         assert_eq!(data[0], 255);
         assert_eq!(data[3], 0xFF);
 
-        set_checkbox(&mut data, 1, 0, 255, 0, true);
+        set_pixel(&mut data, 1, 0, 255, 0, true);
         assert_eq!(data[4], 0);
         assert_eq!(data[5], 255);
         assert_eq!(data[7], 0xFF);
 
-        set_checkbox(&mut data, 0, 100, 100, 100, false);
+        set_pixel(&mut data, 0, 100, 100, 100, false);
         assert_eq!(data[0], 100);
         assert_eq!(data[3], 0x00);
-    }
-
-    #[test]
-    fn test_chunk_coords_roundtrip() {
-        let test_coords = [
-            (0, 0), (1, 0), (0, 1), (1, 1),
-            (-1, 0), (0, -1), (-1, -1),
-            (1000, 2000), (-1000, -2000),
-            (i32::MAX, i32::MAX), (i32::MIN, i32::MIN),
-        ];
-
-        for (x, y) in test_coords {
-            let id = chunk_coords_to_id(x, y);
-            let (rx, ry) = chunk_id_to_coords(id);
-            assert_eq!((rx, ry), (x, y));
-        }
     }
 }

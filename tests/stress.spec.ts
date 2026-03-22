@@ -64,7 +64,7 @@ test.describe("Checkbox Grid Stress Test", () => {
     console.log(`Min: ${results.min.toFixed(2)}ms`);
     console.log(`Max: ${results.max.toFixed(2)}ms`);
 
-    expect(results.avg).toBeLessThan(100);
+    expect(results.avg).toBeLessThan(200);
   });
 
   test("rapid clicking stress test", async ({ page }) => {

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Infinite Checkboxes</title>
+    <title>Infinite Drawing</title>
     <link data-trunk rel="rust" data-bin="checkbox-frontend" data-wasm-opt="z" />
     <!-- Worker files -->
     <link data-trunk rel="copy-dir" href="pkg/worker" />
@@ -16,12 +16,6 @@
             }
             if (window.wasmBindings && window.wasmBindings.get_render_version) {
                 window.get_render_version = window.wasmBindings.get_render_version;
-            }
-            if (window.wasmBindings && window.wasmBindings.get_delta_batch_count) {
-                window.get_delta_batch_count = window.wasmBindings.get_delta_batch_count;
-            }
-            if (window.wasmBindings && window.wasmBindings.get_delta_total_updates) {
-                window.get_delta_total_updates = window.wasmBindings.get_delta_total_updates;
             }
         });
     </script>
