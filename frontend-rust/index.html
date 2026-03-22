@@ -28,6 +28,12 @@
             if (window.wasmBindings && window.wasmBindings.get_doom_chunk_nonzero_count) {
                 window.get_doom_chunk_nonzero_count = window.wasmBindings.get_doom_chunk_nonzero_count;
             }
+            if (window.wasmBindings && window.wasmBindings.get_delta_batch_count) {
+                window.get_delta_batch_count = window.wasmBindings.get_delta_batch_count;
+            }
+            if (window.wasmBindings && window.wasmBindings.get_delta_total_updates) {
+                window.get_delta_total_updates = window.wasmBindings.get_delta_total_updates;
+            }
         });
     </script>
 </head>

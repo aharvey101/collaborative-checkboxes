@@ -245,7 +245,26 @@ thread_local! {
 ///
 /// Coalesces renders: only bumps render_version once per animation frame,
 /// even if multiple delta batches arrive in the same frame.
+thread_local! {
+    static DELTA_BATCH_COUNT: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    static DELTA_TOTAL_UPDATES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Get total delta batches received (for benchmarking)
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn get_delta_batch_count() -> u32 {
+    DELTA_BATCH_COUNT.with(|c| c.get())
+}
+
+/// Get total individual delta updates applied (for benchmarking)
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn get_delta_total_updates() -> u32 {
+    DELTA_TOTAL_UPDATES.with(|c| c.get())
+}
+
 pub fn apply_deltas(bytes: &[u8], count: usize) {
+    DELTA_BATCH_COUNT.with(|c| c.set(c.get() + 1));
+    DELTA_TOTAL_UPDATES.with(|c| c.set(c.get() + count as u32));
     TEST_STATE.with(|s| {
         let state = s.borrow();
         let Some(state) = state.as_ref() else { return };
