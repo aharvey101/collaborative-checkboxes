@@ -4,7 +4,6 @@ pub mod components;
 pub mod compression;
 pub mod constants;
 pub mod db;
-pub mod doom;
 pub mod state;
 pub mod utils;
 pub mod webgl;

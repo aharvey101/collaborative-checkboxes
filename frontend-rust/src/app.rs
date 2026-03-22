@@ -99,15 +99,10 @@ pub fn App() -> impl IntoView {
                         WorkerToMain::ChunkInserted { chunk_id, state: chunk_state, version } => {
                             let t0 = js_sys::Date::now();
                             let data_kb = chunk_state.len() / 1024;
-                            // Only ignore doom chunk updates when WE are running Doom locally,
-                            // to prevent server round-trips from overwriting optimistic frames.
-                            // Other users' Doom frames should still be visible.
-                            if !crate::doom::is_doom_chunk(chunk_id) || !crate::doom::is_doom_running() {
-                                state.loaded_chunks.update(|chunks| {
-                                    chunks.insert(chunk_id, chunk_state);
-                                });
-                                state.render_version.update(|v| *v += 1);
-                            }
+                            state.loaded_chunks.update(|chunks| {
+                                chunks.insert(chunk_id, chunk_state);
+                            });
+                            state.render_version.update(|v| *v += 1);
                             state.subscribed_chunks.update(|subs| {
                                 subs.insert(chunk_id);
                             });
@@ -124,13 +119,10 @@ pub fn App() -> impl IntoView {
                         }
                         WorkerToMain::ChunkUpdated { chunk_id, state: chunk_state, version } => {
                             web_sys::console::log_1(&format!("Chunk {} updated, version {}", chunk_id, version).into());
-                            // Only ignore doom chunk updates when WE are running Doom locally.
-                            if !crate::doom::is_doom_chunk(chunk_id) || !crate::doom::is_doom_running() {
-                                state.loaded_chunks.update(|chunks| {
-                                    chunks.insert(chunk_id, chunk_state);
-                                });
-                                state.render_version.update(|v| *v += 1);
-                            }
+                            state.loaded_chunks.update(|chunks| {
+                                chunks.insert(chunk_id, chunk_state);
+                            });
+                            state.render_version.update(|v| *v += 1);
                         }
                         WorkerToMain::FatalError { message } => {
                             state.status.set(crate::state::ConnectionStatus::Error);
@@ -273,7 +265,7 @@ pub fn apply_deltas(bytes: &[u8], count: usize) {
             use crate::constants::CHUNK_DATA_SIZE;
 
             // Cache last chunk pointer to avoid HashMap lookup per delta.
-            // Nearly all doom deltas hit the same chunk_id.
+            // Cache: nearly all deltas in a batch hit the same chunk_id.
             let mut last_chunk_id: i64 = i64::MIN;
             let mut last_data: *mut Vec<u8> = std::ptr::null_mut();
 
@@ -336,23 +328,3 @@ pub fn get_render_version() -> u32 {
     })
 }
 
-// Check if doom chunk has any non-zero pixel data (for e2e tests).
-// Returns the count of non-zero bytes in the doom chunk, or 0 if not loaded.
-#[wasm_bindgen::prelude::wasm_bindgen]
-pub fn get_doom_chunk_nonzero_count() -> u32 {
-    use crate::utils::chunk_coords_to_id;
-    let doom_chunk_id = chunk_coords_to_id(5, 5);
-    TEST_STATE.with(|s| {
-        s.borrow()
-            .as_ref()
-            .map(|state| {
-                state.loaded_chunks.with_untracked(|chunks| {
-                    chunks
-                        .get(&doom_chunk_id)
-                        .map(|data| data.iter().filter(|&&b| b != 0).count() as u32)
-                        .unwrap_or(0)
-                })
-            })
-            .unwrap_or(0)
-    })
-}

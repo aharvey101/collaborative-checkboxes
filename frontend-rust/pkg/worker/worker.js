@@ -130,14 +130,6 @@ export function get_delta_total_updates() {
 /**
  * @returns {number}
  */
-export function get_doom_chunk_nonzero_count() {
-    const ret = wasm.get_doom_chunk_nonzero_count();
-    return ret >>> 0;
-}
-
-/**
- * @returns {number}
- */
 export function get_render_version() {
     const ret = wasm.get_render_version();
     return ret >>> 0;

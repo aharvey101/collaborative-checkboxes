@@ -27,7 +27,7 @@ pub enum MainToWorker {
         checked: bool,
     },
 
-    /// Batch checkbox updates (drag-to-fill, Doom frames)
+    /// Batch checkbox updates (drag-to-fill)
     BatchUpdate {
         updates: Vec<(i64, u32, u8, u8, u8, bool)>,
     },
