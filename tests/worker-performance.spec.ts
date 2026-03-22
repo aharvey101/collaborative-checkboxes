@@ -9,7 +9,7 @@ test('Worker main thread blocking test', async ({ page }) => {
         return new Promise<number>((resolve) => {
             const updates: any[] = [];
 
-            // Create 50k pixel updates (simulating Doom frame)
+            // Create 50k pixel updates (simulating large batch)
             for (let i = 0; i < 50000; i++) {
                 updates.push([5000, i, 255, 0, 0, true]);
             }
