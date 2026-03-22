@@ -56,6 +56,25 @@ fn schedule_flush() {
     closure.forget();
 }
 
+/// Periodically clean up old pixel broadcast rows
+fn schedule_pixel_cleanup() {
+    let scope: DedicatedWorkerGlobalScope = js_sys::global().unchecked_into();
+    let closure = Closure::once(Box::new(|| {
+        // Clean up all pixels (they've been delivered to subscribers already)
+        let args = u64::MAX.to_le_bytes();
+        with_client(|client| {
+            client.call_reducer("cleanup_pixels", &args);
+        });
+        schedule_pixel_cleanup();
+    }) as Box<dyn FnOnce()>);
+
+    let _ = scope.set_timeout_with_callback_and_timeout_and_arguments_0(
+        closure.as_ref().unchecked_ref(),
+        10000, // every 10 seconds
+    );
+    closure.forget();
+}
+
 /// Worker entry point
 #[wasm_bindgen(start)]
 pub fn worker_main() {
@@ -67,6 +86,9 @@ pub fn worker_main() {
     let scope = js_sys::global()
         .dyn_into::<DedicatedWorkerGlobalScope>()
         .expect("not in worker context");
+
+    // Periodic pixel cleanup
+    schedule_pixel_cleanup();
 
     let handler = Closure::wrap(Box::new(move |event: web_sys::MessageEvent| {
         handle_main_message(event);

@@ -10,6 +10,7 @@ use spacetimedb_client_api_messages::websocket::{
         CallReducer, CallReducerFlags, ClientMessage, InitialConnection, QueryRows,
         ReducerOutcome, ReducerResult, ServerMessage, Subscribe, SubscribeApplied,
         SubscriptionError, TableUpdate, TableUpdateRows, TransactionUpdate,
+        Unsubscribe, UnsubscribeFlags,
     },
 };
 use spacetimedb_lib::bsatn;
@@ -39,6 +40,7 @@ pub struct WorkerClient {
     reconnect_attempt: u32,
     intentional_disconnect: bool,
     request_id: u32,
+    chunk_subscription_id: Option<QuerySetId>,
     // Store closures to prevent memory leaks
     onopen_cb: Option<Closure<dyn FnMut(web_sys::Event)>>,
     onmessage_cb: Option<Closure<dyn FnMut(web_sys::MessageEvent)>>,
@@ -59,6 +61,7 @@ impl WorkerClient {
             reconnect_attempt: 0,
             intentional_disconnect: false,
             request_id: 0,
+            chunk_subscription_id: None,
             onopen_cb: None,
             onmessage_cb: None,
             onerror_cb: None,
@@ -135,15 +138,39 @@ impl WorkerClient {
         self.ws = Some(ws);
     }
 
-    /// Subscribe to the chunk table
+    /// Subscribe: chunk table for initial load, pixel table for live updates.
+    /// After chunk data arrives, we unsubscribe from chunk to avoid 4MB blobs.
     pub fn subscribe(&mut self) {
+        // Subscribe to chunk for initial state
         let request_id = self.next_request_id();
-        let subscribe = Subscribe {
+        let chunk_qid = QuerySetId::new(request_id);
+        self.chunk_subscription_id = Some(chunk_qid);
+        self.send_message(&ClientMessage::Subscribe(Subscribe {
             request_id,
-            query_set_id: QuerySetId::new(request_id),
+            query_set_id: chunk_qid,
             query_strings: vec!["SELECT * FROM chunk".into()].into_boxed_slice(),
-        };
-        self.send_message(&ClientMessage::Subscribe(subscribe));
+        }));
+
+        // Subscribe to pixel for live updates
+        let request_id2 = self.next_request_id();
+        self.send_message(&ClientMessage::Subscribe(Subscribe {
+            request_id: request_id2,
+            query_set_id: QuerySetId::new(request_id2),
+            query_strings: vec!["SELECT * FROM pixel".into()].into_boxed_slice(),
+        }));
+    }
+
+    /// Unsubscribe from chunk after initial load
+    fn unsubscribe_chunks(&mut self) {
+        if let Some(qid) = self.chunk_subscription_id.take() {
+            let request_id = self.next_request_id();
+            self.send_message(&ClientMessage::Unsubscribe(Unsubscribe {
+                request_id,
+                query_set_id: qid,
+                flags: UnsubscribeFlags::default(),
+            }));
+            web_sys::console::log_1(&"[worker] Unsubscribed from chunk (initial load complete)".into());
+        }
     }
 
     /// Send BSATN-encoded reducer call
@@ -359,12 +386,19 @@ fn handle_subscribe_applied(sub: SubscribeApplied) {
         &format!("Subscribe applied for query set {:?}", sub.query_set_id).into(),
     );
     process_query_rows(&sub.rows);
+
+    // If this was the chunk subscription, unsubscribe to avoid 4MB updates
+    with_client(|client| {
+        if client.chunk_subscription_id == Some(sub.query_set_id) {
+            client.unsubscribe_chunks();
+        }
+    });
 }
 
 fn handle_transaction_update(tx: TransactionUpdate) {
     for query_set in tx.query_sets.iter() {
         for table in query_set.tables.iter() {
-            process_chunk_update(table);
+            process_table_update(table);
         }
     }
 }
@@ -381,7 +415,7 @@ fn handle_reducer_result(result: ReducerResult) {
     if let ReducerOutcome::Ok(reducer_ok) = result.result {
         for query_set in reducer_ok.transaction_update.query_sets.iter() {
             for table in query_set.tables.iter() {
-                process_chunk_update(table);
+                process_table_update(table);
             }
         }
     }
@@ -401,24 +435,66 @@ fn process_query_rows(rows: &QueryRows) {
     }
 }
 
-/// Process chunk table updates (inserts and updates)
-fn process_chunk_update(table: &TableUpdate) {
-    if &*table.table_name != "chunk" {
-        return;
-    }
-
-    for rows in table.rows.iter() {
-        match rows {
-            TableUpdateRows::PersistentTable(persistent) => {
+/// Process table updates — route to chunk or pixel handler
+fn process_table_update(table: &TableUpdate) {
+    let name: &str = &table.table_name;
+    if name == "chunk" {
+        for rows in table.rows.iter() {
+            if let TableUpdateRows::PersistentTable(persistent) = rows {
                 for row_bytes in &persistent.inserts {
                     if let Some(chunk) = parse_chunk(&row_bytes) {
                         send_chunk_to_main(chunk);
                     }
                 }
             }
-            _ => {}
+        }
+    } else if name == "pixel" {
+        process_pixel_updates(table);
+    }
+}
+
+/// Process pixel table inserts — send as lightweight binary to main thread
+fn process_pixel_updates(table: &TableUpdate) {
+    let scope: DedicatedWorkerGlobalScope = js_sys::global()
+        .dyn_into().expect("not in worker");
+
+    let mut pixels: Vec<u8> = Vec::new();
+    let mut count = 0u32;
+
+    for rows in table.rows.iter() {
+        if let TableUpdateRows::PersistentTable(persistent) = rows {
+            for row_bytes in &persistent.inserts {
+                if let Some(px) = parse_pixel(&row_bytes) {
+                    pixels.extend_from_slice(&px.chunk_id.to_le_bytes());
+                    pixels.extend_from_slice(&px.cell_offset.to_le_bytes());
+                    pixels.push(px.r);
+                    pixels.push(px.g);
+                    pixels.push(px.b);
+                    pixels.push(if px.checked { 1 } else { 0 });
+                    count += 1;
+                }
+            }
         }
     }
+
+    if count == 0 { return; }
+
+    // Binary format: [tag=3] [count: u32] [N × 16 bytes]
+    let total_len = 1 + 4 + pixels.len();
+    let buffer = js_sys::ArrayBuffer::new(total_len as u32);
+    let view = js_sys::Uint8Array::new(&buffer);
+
+    let mut header = [0u8; 5];
+    header[0] = 3; // PixelBatch tag
+    header[1..5].copy_from_slice(&count.to_le_bytes());
+    view.set(&js_sys::Uint8Array::from(&header[..]), 0);
+
+    let data_view = unsafe { js_sys::Uint8Array::view(&pixels) };
+    view.set(&data_view, 5);
+
+    let transfer = js_sys::Array::new();
+    transfer.push(&buffer);
+    scope.post_message_with_transfer(&buffer, &transfer).expect("postMessage failed");
 }
 
 /// Send chunk data to main thread as binary transfer
@@ -485,6 +561,39 @@ struct ChunkData {
     chunk_id: i64,
     state: Vec<u8>,
     version: u64,
+}
+
+/// Parse a Pixel row from BSATN
+/// Fields: id(u64) + chunk_id(i64) + cell_offset(u32) + r(u8) + g(u8) + b(u8) + checked(bool)
+fn parse_pixel(bytes: &[u8]) -> Option<PixelData> {
+    if bytes.len() < 8 + 8 + 4 + 4 { return None; }
+    let mut r = bytes;
+
+    let _id = u64::from_le_bytes(r[..8].try_into().ok()?);
+    r = &r[8..];
+    let chunk_id = i64::from_le_bytes(r[..8].try_into().ok()?);
+    r = &r[8..];
+    let cell_offset = u32::from_le_bytes(r[..4].try_into().ok()?);
+    r = &r[4..];
+    if r.len() < 4 { return None; }
+
+    Some(PixelData {
+        chunk_id,
+        cell_offset,
+        r: r[0],
+        g: r[1],
+        b: r[2],
+        checked: r[3] != 0,
+    })
+}
+
+struct PixelData {
+    chunk_id: i64,
+    cell_offset: u32,
+    r: u8,
+    g: u8,
+    b: u8,
+    checked: bool,
 }
 
 // === BSATN argument encoding ===
