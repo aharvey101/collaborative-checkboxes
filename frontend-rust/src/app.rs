@@ -252,24 +252,33 @@ pub fn apply_deltas(bytes: &[u8], count: usize) {
 
         state.loaded_chunks.update(|chunks| {
             use crate::constants::CHUNK_DATA_SIZE;
+
+            // Cache last chunk pointer to avoid HashMap lookup per delta.
+            // Nearly all doom deltas hit the same chunk_id.
+            let mut last_chunk_id: i64 = i64::MIN;
+            let mut last_data: *mut Vec<u8> = std::ptr::null_mut();
+
             for i in 0..count {
                 let offset = i * 16;
                 if offset + 16 > bytes.len() { break; }
 
                 let chunk_id = i64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
                 let cell_offset = u32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().unwrap());
-                let r = bytes[offset + 12];
-                let g = bytes[offset + 13];
-                let b = bytes[offset + 14];
-                let checked = bytes[offset + 15] != 0;
 
-                let data = chunks.entry(chunk_id).or_insert_with(|| vec![0u8; CHUNK_DATA_SIZE]);
+                // Only do HashMap lookup when chunk_id changes
+                if chunk_id != last_chunk_id {
+                    last_chunk_id = chunk_id;
+                    let data = chunks.entry(chunk_id).or_insert_with(|| vec![0u8; CHUNK_DATA_SIZE]);
+                    last_data = data as *mut Vec<u8>;
+                }
+
+                let data = unsafe { &mut *last_data };
                 let byte_idx = (cell_offset as usize) * 4;
                 if byte_idx + 3 < data.len() {
-                    data[byte_idx] = r;
-                    data[byte_idx + 1] = g;
-                    data[byte_idx + 2] = b;
-                    data[byte_idx + 3] = if checked { 0xFF } else { 0x00 };
+                    data[byte_idx] = bytes[offset + 12];
+                    data[byte_idx + 1] = bytes[offset + 13];
+                    data[byte_idx + 2] = bytes[offset + 14];
+                    data[byte_idx + 3] = if bytes[offset + 15] != 0 { 0xFF } else { 0x00 };
                 }
             }
         });
