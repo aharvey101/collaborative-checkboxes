@@ -112,13 +112,12 @@ pub fn batch_update_checkboxes(ctx: &ReducerContext, updates: Vec<CheckboxUpdate
 }
 
 /// Snapshot: apply all pending deltas to the full chunk state.
-/// Called periodically by a client (e.g., every 5 seconds) to keep
-/// checkbox_chunk up to date for new subscribers joining.
+/// Only touches checkbox_chunk table — spectators unsubscribe from this,
+/// so they won't receive the large TransactionUpdate.
 #[reducer]
 pub fn snapshot_chunks(ctx: &ReducerContext) {
     use std::collections::HashMap;
 
-    // Collect all deltas
     let deltas: Vec<_> = ctx.db.checkbox_delta().iter().collect();
     if deltas.is_empty() {
         return;
@@ -152,10 +151,21 @@ pub fn snapshot_chunks(ctx: &ReducerContext) {
             ctx.db.checkbox_chunk().insert(new_chunk);
         }
     }
+}
 
-    // Clear processed deltas
-    let seqs: Vec<u64> = deltas.iter().map(|d| d.seq).collect();
-    for seq in seqs {
+/// Clean up old deltas. Called separately from snapshot to avoid
+/// touching checkbox_delta in the same transaction as chunk updates.
+#[reducer]
+pub fn cleanup_old_deltas(ctx: &ReducerContext, max_seq_to_delete: u64) {
+    let old_seqs: Vec<u64> = ctx
+        .db
+        .checkbox_delta()
+        .iter()
+        .filter(|d| d.seq <= max_seq_to_delete)
+        .map(|d| d.seq)
+        .collect();
+
+    for seq in old_seqs {
         ctx.db.checkbox_delta().seq().delete(seq);
     }
 }
