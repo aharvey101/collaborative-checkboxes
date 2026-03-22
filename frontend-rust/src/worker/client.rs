@@ -473,9 +473,16 @@ fn handle_subscription_error(err: SubscriptionError) {
 
 /// Handle reducer result
 fn handle_reducer_result(result: ReducerResult) {
+    // Only log request_id and ok/err status — the full result contains
+    // TransactionUpdate with 4MB chunk data that crashes debug formatters
+    let status = match &result.result {
+        spacetimedb_client_api_messages::websocket::v2::ReducerOutcome::Ok(_) => "ok",
+        spacetimedb_client_api_messages::websocket::v2::ReducerOutcome::OkEmpty => "ok_empty",
+        spacetimedb_client_api_messages::websocket::v2::ReducerOutcome::Err(_) => "err",
+        _ => "unknown",
+    };
     web_sys::console::log_1(
-        &format!("Reducer result: request_id={} success={:?}",
-                 result.request_id, result.result).into()
+        &format!("Reducer result: request_id={} status={}", result.request_id, status).into()
     );
 }
 
