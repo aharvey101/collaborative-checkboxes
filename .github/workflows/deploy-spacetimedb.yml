@@ -1,0 +1,36 @@
+name: Deploy SpacetimeDB Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install SpacetimeDB CLI
+        run: |
+          curl -fsSL https://install.spacetimedb.com | bash
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Login to SpacetimeDB
+        run: spacetime login --token "${{ secrets.SPACETIMEDB_TOKEN }}"
+
+      - name: Publish backend
+        working-directory: backend
+        run: |
+          spacetime publish \
+            -s https://maincloud.spacetimedb.com \
+            --delete-data on-conflict \
+            --break-clients \
+            --yes \
+            checkboxes
