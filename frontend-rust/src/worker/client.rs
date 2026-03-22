@@ -12,7 +12,7 @@ use spacetimedb_client_api_messages::websocket::{
     v2::{
         CallReducer, CallReducerFlags, ClientMessage, InitialConnection, QueryRows,
         ReducerResult, ServerMessage, Subscribe, SubscribeApplied, SubscriptionError,
-        TableUpdate, TableUpdateRows, TransactionUpdate,
+        TableUpdate, TableUpdateRows, TransactionUpdate, Unsubscribe, UnsubscribeFlags,
     },
 };
 use spacetimedb_lib::bsatn;
@@ -42,6 +42,7 @@ pub struct WorkerClient {
     reconnect_attempt: u32,
     intentional_disconnect: bool,
     subscribed_chunks: Vec<i64>,
+    chunk_query_set_id: Option<QuerySetId>,
     request_id: u32,
     // Store closures to prevent memory leaks
     onopen_cb: Option<Closure<dyn FnMut(web_sys::Event)>>,
@@ -63,6 +64,7 @@ impl WorkerClient {
             reconnect_attempt: 0,
             intentional_disconnect: false,
             subscribed_chunks: Vec::new(),
+            chunk_query_set_id: None,
             request_id: 0,
             onopen_cb: None,
             onmessage_cb: None,
@@ -141,18 +143,27 @@ impl WorkerClient {
         self.ws = Some(ws);
     }
 
-    /// Subscribe to checkbox_chunk table
+    /// Subscribe to checkbox_chunk and checkbox_delta tables (two-phase)
     pub fn subscribe(&mut self) {
-        let request_id = self.next_request_id();
-
-        let subscribe = Subscribe {
-            request_id,
-            query_set_id: QuerySetId::new(request_id),
+        // Phase 1: Subscribe to chunks (for initial snapshot)
+        let chunk_request_id = self.next_request_id();
+        let chunk_query_set_id = QuerySetId::new(chunk_request_id);
+        self.chunk_query_set_id = Some(chunk_query_set_id);
+        let chunk_sub = Subscribe {
+            request_id: chunk_request_id,
+            query_set_id: chunk_query_set_id,
             query_strings: vec!["SELECT * FROM checkbox_chunk".into()].into_boxed_slice(),
         };
+        self.send_message(&ClientMessage::Subscribe(chunk_sub));
 
-        let message = ClientMessage::Subscribe(subscribe);
-        self.send_message(&message);
+        // Phase 2: Subscribe to deltas (kept for live updates)
+        let delta_request_id = self.next_request_id();
+        let delta_sub = Subscribe {
+            request_id: delta_request_id,
+            query_set_id: QuerySetId::new(delta_request_id),
+            query_strings: vec!["SELECT * FROM checkbox_delta".into()].into_boxed_slice(),
+        };
+        self.send_message(&ClientMessage::Subscribe(delta_sub));
     }
 
     /// Send BSATN-encoded reducer call
@@ -404,9 +415,22 @@ fn handle_subscribe_applied(sub: SubscribeApplied) {
     web_sys::console::log_1(
         &format!("Subscribe applied for query set {:?}", sub.query_set_id).into(),
     );
-
-    // Process initial rows
     process_query_rows(&sub.rows);
+
+    // If this was the chunk subscription, unsubscribe to stop 4MB broadcasts
+    with_client(|client| {
+        if client.chunk_query_set_id == Some(sub.query_set_id) {
+            web_sys::console::log_1(&"Unsubscribing from checkbox_chunk (initial load complete)".into());
+            let request_id = client.next_request_id();
+            let unsub = Unsubscribe {
+                request_id,
+                query_set_id: sub.query_set_id,
+                flags: UnsubscribeFlags::Default,
+            };
+            client.send_message(&ClientMessage::Unsubscribe(unsub));
+            client.chunk_query_set_id = None;
+        }
+    });
 }
 
 /// Handle transaction update message
@@ -457,38 +481,25 @@ fn process_query_rows(rows: &QueryRows) {
 fn process_table_update(table: &TableUpdate) {
     let table_name: &str = &table.table_name;
 
-    // We only care about checkbox_chunk table
-    if table_name != "checkbox_chunk" {
+    if table_name == "checkbox_delta" {
+        for rows in table.rows.iter() {
+            match rows {
+                TableUpdateRows::PersistentTable(persistent) => {
+                    for row_bytes in &persistent.inserts {
+                        if let Some(data) = parse_checkbox_delta(&row_bytes) {
+                            send_to_main_thread(WorkerToMain::DeltaUpdate { data });
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         return;
     }
 
-    for rows in table.rows.iter() {
-        match rows {
-            TableUpdateRows::PersistentTable(persistent) => {
-                // Process inserts
-                for row_bytes in &persistent.inserts {
-                    if let Some(chunk) = parse_checkbox_chunk(&row_bytes) {
-                        send_to_main_thread(WorkerToMain::ChunkInserted {
-                            chunk_id: chunk.chunk_id,
-                            state: chunk.state,
-                            version: chunk.version,
-                        });
-                    }
-                }
-
-                // Process deletes (not typically used in our app)
-                for row_bytes in &persistent.deletes {
-                    if let Some(chunk) = parse_checkbox_chunk(&row_bytes) {
-                        web_sys::console::log_1(
-                            &format!("Chunk deleted: {}", chunk.chunk_id).into()
-                        );
-                    }
-                }
-            }
-            TableUpdateRows::EventTable(_) => {
-                // Not applicable for checkbox_chunk
-            }
-        }
+    // Skip checkbox_chunk TransactionUpdates — we unsubscribe after initial load
+    if table_name == "checkbox_chunk" {
+        return;
     }
 }
 
@@ -533,6 +544,22 @@ fn parse_checkbox_chunk(bytes: &[u8]) -> Option<CheckboxChunk> {
     })
 }
 
+/// Parse a CheckboxDelta from BSATN
+/// Format: id (u64 LE) + data (u32 len + bytes) + timestamp (u64 LE)
+fn parse_checkbox_delta(bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut reader = bytes;
+    // Skip id (u64, 8 bytes)
+    if reader.len() < 8 { return None; }
+    reader = &reader[8..];
+    // Read data (Vec<u8>): length-prefixed with u32
+    if reader.len() < 4 { return None; }
+    let data_len = u32::from_le_bytes([reader[0], reader[1], reader[2], reader[3]]) as usize;
+    reader = &reader[4..];
+    if reader.len() < data_len { return None; }
+    let data = reader[..data_len].to_vec();
+    Some(data)
+}
+
 struct CheckboxChunk {
     chunk_id: i64,
     state: Vec<u8>,
@@ -547,14 +574,93 @@ fn handle_ws_close() {
 }
 
 /// Send message to main thread
+///
+/// For chunk data (ChunkInserted/ChunkUpdated), we send a JS object with the
+/// state as a transferable ArrayBuffer instead of JSON-serializing the entire
+/// 4MB Vec<u8>. This avoids the 4MB→15MB JSON expansion and enables zero-copy
+/// transfer via the structured clone algorithm.
+///
+/// Message format for chunk data:
+///   { type: "ChunkInserted"|"ChunkUpdated", chunk_id: number, version: number, state: ArrayBuffer }
+///
+/// For small messages (Connected, FatalError), we still use JSON strings.
 fn send_to_main_thread(msg: WorkerToMain) {
     let scope = js_sys::global()
         .dyn_into::<DedicatedWorkerGlobalScope>()
         .expect("not in worker");
 
-    let json = serde_json::to_string(&msg).expect("serialization failed");
-    let value = wasm_bindgen::JsValue::from_str(&json);
-    scope.post_message(&value).expect("postMessage failed");
+    match msg {
+        WorkerToMain::ChunkInserted {
+            chunk_id,
+            state,
+            version,
+        } => {
+            send_chunk_binary(&scope, "ChunkInserted", chunk_id, &state, version);
+        }
+        WorkerToMain::ChunkUpdated {
+            chunk_id,
+            state,
+            version,
+        } => {
+            send_chunk_binary(&scope, "ChunkUpdated", chunk_id, &state, version);
+        }
+        WorkerToMain::DeltaUpdate { data } => {
+            send_delta_binary(&scope, &data);
+        }
+        other => {
+            // Small messages: use JSON
+            let json = serde_json::to_string(&other).expect("serialization failed");
+            let value = wasm_bindgen::JsValue::from_str(&json);
+            scope.post_message(&value).expect("postMessage failed");
+        }
+    }
+}
+
+/// Send chunk data as a JS object with a transferable ArrayBuffer
+fn send_chunk_binary(
+    scope: &DedicatedWorkerGlobalScope,
+    msg_type: &str,
+    chunk_id: i64,
+    state: &[u8],
+    version: u64,
+) {
+    // Create an ArrayBuffer from the state bytes
+    let uint8_array = js_sys::Uint8Array::new_with_length(state.len() as u32);
+    uint8_array.copy_from(state);
+    let array_buffer = uint8_array.buffer();
+
+    // Build the message object: { type, chunk_id, version, state: ArrayBuffer }
+    let obj = js_sys::Object::new();
+    js_sys::Reflect::set(&obj, &"type".into(), &msg_type.into()).unwrap();
+    js_sys::Reflect::set(&obj, &"chunk_id".into(), &(chunk_id as f64).into()).unwrap();
+    js_sys::Reflect::set(&obj, &"version".into(), &(version as f64).into()).unwrap();
+    js_sys::Reflect::set(&obj, &"state".into(), &array_buffer).unwrap();
+
+    // Transfer the ArrayBuffer (zero-copy move to main thread)
+    let transfer = js_sys::Array::new();
+    transfer.push(&array_buffer);
+
+    scope
+        .post_message_with_transfer(&obj.into(), &transfer)
+        .expect("postMessage with transfer failed");
+}
+
+/// Send delta data as a JS object with a transferable ArrayBuffer
+fn send_delta_binary(scope: &DedicatedWorkerGlobalScope, data: &[u8]) {
+    let uint8_array = js_sys::Uint8Array::new_with_length(data.len() as u32);
+    uint8_array.copy_from(data);
+    let array_buffer = uint8_array.buffer();
+
+    let obj = js_sys::Object::new();
+    js_sys::Reflect::set(&obj, &"type".into(), &"DeltaUpdate".into()).unwrap();
+    js_sys::Reflect::set(&obj, &"data".into(), &array_buffer).unwrap();
+
+    let transfer = js_sys::Array::new();
+    transfer.push(&array_buffer);
+
+    scope
+        .post_message_with_transfer(&obj.into(), &transfer)
+        .expect("postMessage with transfer failed");
 }
 
 /// Encode BSATN arguments for reducer
