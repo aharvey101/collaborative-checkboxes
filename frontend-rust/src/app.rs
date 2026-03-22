@@ -235,9 +235,16 @@ pub fn set_test_state(state: AppState) {
     });
 }
 
+thread_local! {
+    static DELTA_RENDER_SCHEDULED: std::cell::RefCell<bool> = const { std::cell::RefCell::new(false) };
+}
+
 /// Apply delta updates from the worker directly to loaded_chunks.
 /// Called from worker_bridge when a DeltaBatch binary message arrives.
 /// bytes: packed [N × 16 bytes: chunk_id(8) + cell_offset(4) + r + g + b + checked]
+///
+/// Coalesces renders: only bumps render_version once per animation frame,
+/// even if multiple delta batches arrive in the same frame.
 pub fn apply_deltas(bytes: &[u8], count: usize) {
     TEST_STATE.with(|s| {
         let state = s.borrow();
@@ -266,7 +273,27 @@ pub fn apply_deltas(bytes: &[u8], count: usize) {
                 }
             }
         });
-        state.render_version.update(|v| *v += 1);
+
+        // Coalesce: schedule one render_version bump per animation frame
+        let already_scheduled = DELTA_RENDER_SCHEDULED.with(|f| {
+            let was = *f.borrow();
+            *f.borrow_mut() = true;
+            was
+        });
+
+        if !already_scheduled {
+            let state_copy = *state;
+            let closure = wasm_bindgen::closure::Closure::once(Box::new(move || {
+                DELTA_RENDER_SCHEDULED.with(|f| *f.borrow_mut() = false);
+                state_copy.render_version.update(|v| *v += 1);
+            }) as Box<dyn FnOnce()>);
+
+            web_sys::window()
+                .expect("no window")
+                .request_animation_frame(closure.as_ref().unchecked_ref())
+                .expect("rAF failed");
+            closure.forget();
+        }
     });
 }
 
