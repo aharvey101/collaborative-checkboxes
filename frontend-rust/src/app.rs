@@ -139,8 +139,9 @@ pub fn App() -> impl IntoView {
                                     let chunk_id = i64::from_le_bytes(
                                         entry[0..8].try_into().unwrap(),
                                     );
-                                    // Skip doom chunks — optimistic local frames are authoritative
-                                    if crate::doom::is_doom_chunk(chunk_id) {
+                                    // Skip doom chunks only if WE are running Doom —
+                                    // spectators need to receive doom frame deltas
+                                    if crate::doom::is_doom_running() && crate::doom::is_doom_chunk(chunk_id) {
                                         continue;
                                     }
                                     let cell_offset = u32::from_le_bytes(
@@ -150,13 +151,17 @@ pub fn App() -> impl IntoView {
                                     let g = entry[13];
                                     let b = entry[14];
                                     let checked = entry[15] != 0;
-                                    if let Some(chunk_data) = chunks.get_mut(&chunk_id) {
-                                        crate::db::set_checkbox(
-                                            chunk_data,
-                                            cell_offset as usize,
-                                            r, g, b, checked,
-                                        );
-                                    }
+                                    // Create empty chunk if it doesn't exist yet
+                                    // (e.g., spectator receives deltas for chunks created
+                                    // after it unsubscribed from checkbox_chunk)
+                                    let chunk_data = chunks
+                                        .entry(chunk_id)
+                                        .or_insert_with(|| vec![0u8; crate::constants::CHUNK_DATA_SIZE]);
+                                    crate::db::set_checkbox(
+                                        chunk_data,
+                                        cell_offset as usize,
+                                        r, g, b, checked,
+                                    );
                                 }
                             });
                             state.render_version.update(|v| *v += 1);
