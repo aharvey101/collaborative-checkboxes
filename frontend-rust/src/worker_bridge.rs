@@ -77,21 +77,6 @@ where
                     _ => WorkerToMain::ChunkUpdated { chunk_id, state, version },
                 };
                 on_message(msg);
-            } else if tag == 3 {
-                // Pixel batch: [tag=3] [count: u32] [N × 16 bytes]
-                if len < 5 { return; }
-                let mut count_bytes = [0u8; 4];
-                view.slice(1, 5).copy_to(&mut count_bytes);
-                let count = u32::from_le_bytes(count_bytes) as usize;
-
-                let data_len = count * 16;
-                if len < 5 + data_len { return; }
-
-                let mut bytes = vec![0u8; data_len];
-                view.slice(5, (5 + data_len) as u32).copy_to(&mut bytes);
-
-                // Apply pixel updates directly to loaded_chunks
-                crate::app::apply_pixel_updates(&bytes, count);
             } else {
                 web_sys::console::error_1(&format!("Unknown binary tag: {}", tag).into());
             }
