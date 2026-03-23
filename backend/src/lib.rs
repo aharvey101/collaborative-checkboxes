@@ -16,29 +16,14 @@ pub struct PixelUpdate {
     pub checked: bool,
 }
 
-/// Stores full pixel state per chunk (persistence + initial load).
+/// Stores full pixel state per chunk. Each chunk is 1000x1000 pixels.
+/// State is a 4MB RGBA blob. Subscribers receive updates via SpacetimeDB.
 #[table(accessor = chunk, public)]
 pub struct Chunk {
     #[primary_key]
     pub chunk_id: i64,
     pub state: Vec<u8>,
     pub version: u64,
-}
-
-/// Lightweight pixel event for real-time broadcast.
-/// Each row is ~20 bytes. Subscribers see inserts instantly.
-/// Cleaned up periodically to prevent unbounded growth.
-#[table(accessor = pixel, public)]
-pub struct Pixel {
-    #[auto_inc]
-    #[primary_key]
-    pub id: u64,
-    pub chunk_id: i64,
-    pub cell_offset: u32,
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub checked: bool,
 }
 
 /// Set a pixel at the given position
@@ -52,7 +37,7 @@ fn set_pixel(data: &mut [u8], cell_index: usize, r: u8, g: u8, b: u8, checked: b
     }
 }
 
-/// Update a single pixel — persists to chunk + broadcasts via pixel table
+/// Update a single pixel
 #[reducer]
 pub fn update_pixel(
     ctx: &ReducerContext,
@@ -63,7 +48,6 @@ pub fn update_pixel(
     b: u8,
     checked: bool,
 ) {
-    // Persist to chunk
     if let Some(mut row) = ctx.db.chunk().chunk_id().find(chunk_id) {
         set_pixel(&mut row.state, cell_offset as usize, r, g, b, checked);
         row.version += 1;
@@ -77,30 +61,18 @@ pub fn update_pixel(
             version: 1,
         });
     }
-
-    // Broadcast via pixel table
-    ctx.db.pixel().insert(Pixel {
-        id: 0,
-        chunk_id,
-        cell_offset,
-        r,
-        g,
-        b,
-        checked,
-    });
 }
 
-/// Batch update multiple pixels
+/// Batch update multiple pixels at once
 #[reducer]
 pub fn batch_update(ctx: &ReducerContext, updates: Vec<PixelUpdate>) {
     use std::collections::HashMap;
 
     let mut by_chunk: HashMap<i64, Vec<(u32, u8, u8, u8, bool)>> = HashMap::new();
-    for u in &updates {
+    for u in updates {
         by_chunk.entry(u.chunk_id).or_default().push((u.cell_offset, u.r, u.g, u.b, u.checked));
     }
 
-    // Persist to chunk table
     for (chunk_id, pixels) in by_chunk {
         if let Some(mut row) = ctx.db.chunk().chunk_id().find(chunk_id) {
             for (offset, r, g, b, checked) in pixels {
@@ -120,31 +92,6 @@ pub fn batch_update(ctx: &ReducerContext, updates: Vec<PixelUpdate>) {
             });
         }
     }
-
-    // Broadcast each pixel update
-    for u in updates {
-        ctx.db.pixel().insert(Pixel {
-            id: 0,
-            chunk_id: u.chunk_id,
-            cell_offset: u.cell_offset,
-            r: u.r,
-            g: u.g,
-            b: u.b,
-            checked: u.checked,
-        });
-    }
-}
-
-/// Clean up old pixel broadcast rows
-#[reducer]
-pub fn cleanup_pixels(ctx: &ReducerContext, max_id: u64) {
-    let old: Vec<u64> = ctx.db.pixel().iter()
-        .filter(|p| p.id <= max_id)
-        .map(|p| p.id)
-        .collect();
-    for id in old {
-        ctx.db.pixel().id().delete(id);
-    }
 }
 
 /// Clear all data
@@ -153,10 +100,6 @@ pub fn clear_all(ctx: &ReducerContext) {
     let ids: Vec<i64> = ctx.db.chunk().iter().map(|r| r.chunk_id).collect();
     for id in ids {
         ctx.db.chunk().chunk_id().delete(id);
-    }
-    let pixel_ids: Vec<u64> = ctx.db.pixel().iter().map(|p| p.id).collect();
-    for id in pixel_ids {
-        ctx.db.pixel().id().delete(id);
     }
 }
 
